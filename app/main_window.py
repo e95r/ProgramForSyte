@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -78,6 +78,17 @@ class MainWindow(QMainWindow):
 
         self.refresh_events()
 
+    def _file_debug_message(self, file_path: Path) -> str:
+        exists = file_path.exists()
+        size = file_path.stat().st_size if exists else 0
+        suffix = file_path.suffix.lower()
+        return (
+            f"Selected: {file_path}\n"
+            f"Exists: {exists}\n"
+            f"Size: {size}\n"
+            f"Suffix: {suffix}"
+        )
+
     def refresh_events(self) -> None:
         self.events_list.clear()
         for event in self.service.repo.list_events():
@@ -115,16 +126,27 @@ class MainWindow(QMainWindow):
                 self.table.setItem(row_idx, col_idx, cell)
 
     def import_excel(self) -> None:
+        settings = QSettings("ProgramForSyte", "SwimMeet")
+        last_file = settings.value("last_opened_file", "", type=str)
+        default_directory = str(Path(last_file).parent) if last_file else str(Path.home())
+
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Выберите стартовый протокол",
-            str(self.root / "data"),
-            "Excel (*.xlsx *.xlsm)",
+            default_directory,
         )
         if not path:
             return
+
+        selected_path = Path(path)
+        settings.setValue("last_opened_file", str(selected_path))
+
+        debug_message = self._file_debug_message(selected_path)
+        print(debug_message)
+        QMessageBox.information(self, "Диагностика выбора файла", debug_message)
+
         try:
-            self.service.import_startlist(Path(path))
+            self.service.import_startlist(selected_path)
         except ExcelImportError as exc:
             QMessageBox.warning(self, "Ошибка импорта", str(exc))
             return
