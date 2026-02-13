@@ -15,9 +15,6 @@ class Swimmer:
     seed_time_cs: Optional[int]
     heat: Optional[int]
     lane: Optional[int]
-    result_time_raw: Optional[str] = None
-    result_time_cs: Optional[int] = None
-    result_status: str = "OK"
     status: str = "OK"
 
 
