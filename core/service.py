@@ -3,9 +3,11 @@ from __future__ import annotations
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Iterable
 
 from core.db import MeetRepository
 from core.reseeding import compress_lanes_within_heats, full_reseed
+from core.time_utils import format_cs, parse_seed_time_to_cs
 
 
 class MeetService:
@@ -50,3 +52,60 @@ class MeetService:
             updated = compress_lanes_within_heats(swimmers)
         self.repo.update_swimmer_positions(updated)
         self.repo.log("mark_dns", f"event={event_id}; ids={swimmer_ids}; mode={mode}")
+
+    def save_event_results(self, event_id: int, results: Iterable[dict]) -> None:
+        for row in results:
+            status = row.get("result_status", "OK")
+            raw = (row.get("result_time_raw") or "").strip() or None
+            time_cs = parse_seed_time_to_cs(raw) if raw else None
+            if status != "OK":
+                raw = None
+                time_cs = None
+            self.repo.set_result(int(row["swimmer_id"]), raw, time_cs, status)
+        self.repo.log("save_event_results", f"event={event_id}")
+
+    def build_event_protocol_text(self, event_id: int) -> str:
+        events = {e.id: e for e in self.repo.list_events()}
+        event = events[event_id]
+        swimmers = self.repo.list_event_results(event_id)
+        lines = [f"Протокол дистанции: {event.name}", "=" * 80]
+        lines.append("Место | ФИО | Год | Команда | Заплыв/дорожка | Результат")
+        place = 0
+        for swimmer in swimmers:
+            result = swimmer.result_status if swimmer.result_status != "OK" else (format_cs(swimmer.result_time_cs) or "-")
+            if swimmer.result_status == "OK" and swimmer.result_time_cs is not None:
+                place += 1
+                place_display = str(place)
+            else:
+                place_display = "-"
+            lines.append(
+                f"{place_display:>5} | {swimmer.full_name} | {swimmer.birth_year or '-'} | {swimmer.team or '-'} | "
+                f"{swimmer.heat or '-'} / {swimmer.lane or '-'} | {result}"
+            )
+        return "\n".join(lines)
+
+    def save_event_protocol(self, event_id: int, output: Path | None = None) -> Path:
+        if output is None:
+            output_dir = self.meet_dir / "protocols"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output = output_dir / f"event-{event_id}-protocol.txt"
+        output.write_text(self.build_event_protocol_text(event_id), encoding="utf-8")
+        self.repo.log("save_event_protocol", str(output))
+        return output
+
+    def build_final_protocol_text(self) -> str:
+        lines = ["Итоговый протокол соревнования", "=" * 80]
+        for event in self.repo.list_events():
+            lines.append("")
+            lines.append(self.build_event_protocol_text(event.id))
+        return "\n".join(lines)
+
+    def save_final_protocol(self, output: Path | None = None) -> Path:
+        if output is None:
+            output_dir = self.meet_dir / "protocols"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            output = output_dir / f"final-protocol-{stamp}.txt"
+        output.write_text(self.build_final_protocol_text(), encoding="utf-8")
+        self.repo.log("save_final_protocol", str(output))
+        return output
