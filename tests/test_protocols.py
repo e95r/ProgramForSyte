@@ -43,5 +43,25 @@ def test_final_protocol_contains_all_events(tmp_path: Path):
         assert "50m" in html
         assert "100m" in html
         assert "Итоговый протокол соревнований" in html
+        assert "size: A4" in html
+    finally:
+        service.close()
+
+
+def test_final_protocol_sort_by_mark(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("200m")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "A", "result_mark": "DNS"},
+                {"full_name": "B", "result_mark": "DQ"},
+                {"full_name": "C", "result_mark": ""},
+            ],
+        )
+
+        html = service.build_final_protocol(grouped=False, sort_by="mark")
+        assert html.index("DNS") < html.index("DQ") < html.index("<td>C</td>")
     finally:
         service.close()

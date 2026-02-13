@@ -3,12 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QTextDocument
+from PySide6.QtGui import QPageSize, QTextDocument
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QDialog,
@@ -269,7 +270,8 @@ class MainWindow(QMainWindow):
         dialog = ProtocolDialog(
             self.service,
             title="Итоговый протокол соревнований",
-            build_html=lambda grouped: self.service.build_final_protocol(grouped=grouped),
+            build_html=lambda grouped, sort_by: self.service.build_final_protocol(grouped=grouped, sort_by=sort_by),
+            allow_sorting=True,
             self_parent=self,
         )
         dialog.exec()
@@ -352,16 +354,30 @@ class MarkDelegate(QStyledItemDelegate):
 
 
 class ProtocolDialog(QDialog):
-    def __init__(self, service: MeetService, title: str, build_html, self_parent: QWidget | None = None):
+    def __init__(
+        self,
+        service: MeetService,
+        title: str,
+        build_html,
+        allow_sorting: bool = False,
+        self_parent: QWidget | None = None,
+    ):
         super().__init__(self_parent)
         self.service = service
         self.build_html = build_html
+        self.allow_sorting = allow_sorting
         self.setWindowTitle(title)
         self.resize(1000, 700)
 
         self.group_by_heat = QCheckBox("Группировать по заплывам/дорожкам")
         self.group_by_heat.setChecked(True)
         self.group_by_heat.stateChanged.connect(self.refresh_html)
+
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItem("Сортировка: по месту", "place")
+        self.sort_combo.addItem("Сортировка: по отметке", "mark")
+        self.sort_combo.currentIndexChanged.connect(self.refresh_html)
+        self.sort_combo.setVisible(allow_sorting)
 
         self.viewer = QTextEdit()
         self.viewer.setReadOnly(True)
@@ -375,6 +391,7 @@ class ProtocolDialog(QDialog):
 
         toolbar = QHBoxLayout()
         toolbar.addWidget(self.group_by_heat)
+        toolbar.addWidget(self.sort_combo)
         toolbar.addWidget(refresh_btn)
         toolbar.addWidget(print_btn)
         toolbar.addWidget(save_btn)
@@ -386,6 +403,8 @@ class ProtocolDialog(QDialog):
         self.refresh_html()
 
     def current_html(self) -> str:
+        if self.allow_sorting:
+            return self.build_html(self.group_by_heat.isChecked(), self.sort_combo.currentData())
         return self.build_html(self.group_by_heat.isChecked())
 
     def refresh_html(self) -> None:
@@ -393,6 +412,7 @@ class ProtocolDialog(QDialog):
 
     def print_protocol(self) -> None:
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
         dialog = QPrintDialog(printer, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             doc = QTextDocument()
