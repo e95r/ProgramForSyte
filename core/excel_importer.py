@@ -1,8 +1,7 @@
 from __future__ import annotations
 
+from zipfile import BadZipFile
 from pathlib import Path
-
-from openpyxl import load_workbook
 
 from core.time_utils import parse_seed_time_to_cs
 
@@ -13,6 +12,10 @@ HEADER_ALIASES = {
     "seed": {"заявочное время", "время", "seed", "entry time"},
     "heat_lane": {"заплыв/дорожка", "заплыв/дорожка ", "заплыв", "heat/lane"},
 }
+
+
+class ExcelImportError(ValueError):
+    """Raised when a startlist file cannot be parsed as supported Excel."""
 
 
 def _normalize(value: object) -> str:
@@ -40,7 +43,22 @@ def _parse_heat_lane(text: object) -> tuple[int | None, int | None]:
 
 
 def import_excel(path: Path) -> dict[str, list[dict]]:
-    wb = load_workbook(path, data_only=True)
+    if path.suffix.lower() == ".xls":
+        raise ExcelImportError("Формат .xls не поддерживается. Сохраните файл как .xlsx и попробуйте снова.")
+
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.utils.exceptions import InvalidFileException
+    except ModuleNotFoundError as exc:
+        raise ExcelImportError("Не установлен пакет openpyxl. Установите зависимости приложения.") from exc
+
+    try:
+        wb = load_workbook(path, data_only=True)
+    except (BadZipFile, InvalidFileException) as exc:
+        raise ExcelImportError(
+            "Не удалось открыть Excel-файл. Проверьте, что это корректный .xlsx/.xlsm файл."
+        ) from exc
+
     result: dict[str, list[dict]] = {}
 
     for ws in wb.worksheets:
