@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QTableWidget,
     QTableWidgetItem,
+    QStyledItemDelegate,
     QVBoxLayout,
     QWidget,
 )
@@ -285,12 +286,18 @@ class ResultsEntryDialog(QDialog):
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(["ID", "Заплыв", "ФИО", "Команда", "Заявка", "Результат", "Отметка"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setItemDelegateForColumn(5, TimeMaskDelegate(self.table))
+        self.table.setItemDelegateForColumn(6, MarkDelegate(self.table))
+
+        mark_hint = QLabel("Отметка: используйте коды судейства (например, DNS, DQ, EXH), если нужен комментарий к результату.")
+        mark_hint.setWordWrap(True)
 
         save_btn = QPushButton("Сохранить результаты")
         save_btn.clicked.connect(self.save_results)
 
         layout = QVBoxLayout()
         layout.addWidget(self.table)
+        layout.addWidget(mark_hint)
         layout.addWidget(save_btn)
         self.setLayout(layout)
         self.load_rows()
@@ -328,6 +335,20 @@ class ResultsEntryDialog(QDialog):
         self.service.save_event_results(self.event_id, payload)
         QMessageBox.information(self, "Результаты", "Результаты сохранены")
         self.accept()
+
+
+class TimeMaskDelegate(QStyledItemDelegate):
+    def createEditor(self, parent, option, index):
+        editor = QLineEdit(parent)
+        editor.setInputMask("00:00:00")
+        return editor
+
+
+class MarkDelegate(QStyledItemDelegate):
+    def createEditor(self, parent, option, index):
+        editor = QLineEdit(parent)
+        editor.setPlaceholderText("DNS / DQ / EXH")
+        return editor
 
 
 class ProtocolDialog(QDialog):
