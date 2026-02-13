@@ -3,9 +3,9 @@ from __future__ import annotations
 import shutil
 from datetime import datetime
 from pathlib import Path
-
 from core.db import MeetRepository
 from core.reseeding import compress_lanes_within_heats, full_reseed
+from core.time_utils import parse_seed_time_to_cs
 
 
 class MeetService:
@@ -58,3 +58,70 @@ class MeetService:
             updated = compress_lanes_within_heats(swimmers)
         self.repo.update_swimmer_positions(updated)
         self.repo.log("reseed_event", f"event={event_id}; mode={mode}")
+
+    def save_event_results(self, event_id: int, results: list[dict[str, str]]) -> None:
+        payload: list[tuple[int, str | None, int | None, str | None]] = []
+        for row in results:
+            swimmer_id = int(row["swimmer_id"])
+            raw = row.get("result_time_raw", "").strip() or None
+            mark = row.get("result_mark", "").strip() or None
+            cs = parse_seed_time_to_cs(raw) if raw else None
+            payload.append((swimmer_id, raw, cs, mark))
+        self.repo.save_results(payload)
+        self.repo.log("save_event_results", f"event={event_id}; rows={len(payload)}")
+
+    def build_event_protocol(self, event_id: int, grouped: bool = True) -> str:
+        event = next(e for e in self.repo.list_events() if e.id == event_id)
+        swimmers = self.repo.list_swimmers(event_id)
+        return self._build_protocol_html(event.name, swimmers, grouped=grouped)
+
+    def build_final_protocol(self, grouped: bool = True) -> str:
+        blocks: list[str] = ["<h1>Итоговый протокол соревнований</h1>"]
+        for event in self.repo.list_events():
+            swimmers = self.repo.list_swimmers(event.id)
+            blocks.append(self._build_protocol_html(event.name, swimmers, grouped=grouped, with_title=True))
+        return "\n".join(blocks)
+
+    def _build_protocol_html(self, title: str, swimmers: list, grouped: bool, with_title: bool = True) -> str:
+        active = [s for s in swimmers if s.status != "DNS"]
+        ranked = sorted(active, key=lambda s: (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name))
+        places = {s.id: idx + 1 for idx, s in enumerate(ranked) if s.result_time_cs is not None}
+
+        def row_html(s, place: str) -> str:
+            return (
+                "<tr>"
+                f"<td>{s.heat or '-'} / {s.lane or '-'}</td>"
+                f"<td>{s.full_name}</td>"
+                f"<td>{s.team or ''}</td>"
+                f"<td>{s.seed_time_raw or ''}</td>"
+                f"<td>{s.result_time_raw or ''}</td>"
+                f"<td>{s.result_mark or ''}</td>"
+                f"<td>{place}</td>"
+                "</tr>"
+            )
+
+        rows: list[str] = []
+        if grouped:
+            heats: dict[int, list] = {}
+            for s in swimmers:
+                heat_key = s.heat or 999
+                heats.setdefault(heat_key, []).append(s)
+            for heat in sorted(heats):
+                heat_title = "Без заплыва" if heat == 999 else f"Заплыв {heat}"
+                rows.append(f"<tr><td colspan='7'><b>{heat_title}</b></td></tr>")
+                for s in sorted(heats[heat], key=lambda x: (x.lane is None, x.lane or 999, x.full_name)):
+                    place = str(places.get(s.id, ""))
+                    rows.append(row_html(s, place))
+        else:
+            for s in sorted(swimmers, key=lambda x: (x.result_time_cs is None, x.result_time_cs or 99999999, x.full_name)):
+                place = str(places.get(s.id, ""))
+                rows.append(row_html(s, place))
+
+        heading = f"<h2>{title}</h2>" if with_title else ""
+        return (
+            f"{heading}"
+            "<table border='1' cellspacing='0' cellpadding='4' width='100%'>"
+            "<tr><th>Заплыв/дорожка</th><th>ФИО</th><th>Команда</th><th>Заявка</th><th>Результат</th><th>Отм.</th><th>Место</th></tr>"
+            + "".join(rows)
+            + "</table>"
+        )

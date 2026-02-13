@@ -3,18 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
+from PySide6.QtGui import QTextDocument
+from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QCheckBox,
     QFileDialog,
     QHBoxLayout,
+    QDialog,
     QLabel,
     QLineEdit,
     QListWidget,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QTextEdit,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -43,8 +47,8 @@ class MainWindow(QMainWindow):
         self.full_reseed = QCheckBox("Полный пересев")
         self.full_reseed.setToolTip("Если включено — полностью пересчитать заплывы по заявочному времени")
 
-        self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["ID", "ФИО", "Год", "Команда", "Время", "Заплыв", "Статус"])
+        self.table = QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels(["ID", "ФИО", "Год", "Команда", "Время", "Заплыв", "Статус", "Результат"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -59,6 +63,12 @@ class MainWindow(QMainWindow):
         restore_btn.clicked.connect(self.restore_swimmers)
         reseed_btn = QPushButton("Пересобрать")
         reseed_btn.clicked.connect(self.reseed_event)
+        result_entry_btn = QPushButton("Ввод результатов")
+        result_entry_btn.clicked.connect(self.open_results_entry)
+        event_protocol_btn = QPushButton("Протокол дистанции")
+        event_protocol_btn.clicked.connect(self.open_event_protocol)
+        final_protocol_btn = QPushButton("Подвести итоги")
+        final_protocol_btn.clicked.connect(self.open_final_protocol)
 
         left = QVBoxLayout()
         left.addWidget(QLabel("Дистанции"))
@@ -74,6 +84,9 @@ class MainWindow(QMainWindow):
         actions.addWidget(mark_absent_btn)
         actions.addWidget(restore_btn)
         actions.addWidget(reseed_btn)
+        actions.addWidget(result_entry_btn)
+        actions.addWidget(event_protocol_btn)
+        actions.addWidget(final_protocol_btn)
         right.addLayout(actions)
 
         root_layout = QHBoxLayout()
@@ -126,6 +139,7 @@ class MainWindow(QMainWindow):
                 s.seed_time_raw or "",
                 f"{s.heat or '-'} / {s.lane or '-'}",
                 self._status_label(s.status),
+                s.result_time_raw or "",
             ]
             for col_idx, val in enumerate(values):
                 cell = QTableWidgetItem(val)
@@ -229,6 +243,153 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Бэкап", f"Сохранено: {backup}")
         else:
             QMessageBox.warning(self, "Бэкап", "База ещё не создана")
+
+    def open_results_entry(self) -> None:
+        event_id = self.current_event_id()
+        if event_id is None:
+            return
+        dialog = ResultsEntryDialog(self.service, event_id, self)
+        if dialog.exec():
+            self.load_swimmers()
+
+    def open_event_protocol(self) -> None:
+        event_id = self.current_event_id()
+        if event_id is None:
+            return
+        dialog = ProtocolDialog(
+            self.service,
+            title="Протокол дистанции",
+            build_html=lambda grouped: self.service.build_event_protocol(event_id, grouped=grouped),
+            self_parent=self,
+        )
+        dialog.exec()
+
+    def open_final_protocol(self) -> None:
+        dialog = ProtocolDialog(
+            self.service,
+            title="Итоговый протокол соревнований",
+            build_html=lambda grouped: self.service.build_final_protocol(grouped=grouped),
+            self_parent=self,
+        )
+        dialog.exec()
+
+
+class ResultsEntryDialog(QDialog):
+    def __init__(self, service: MeetService, event_id: int, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.service = service
+        self.event_id = event_id
+        self.setWindowTitle("Ввод результатов заплыва")
+        self.resize(900, 600)
+
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["ID", "Заплыв", "ФИО", "Команда", "Заявка", "Результат", "Отметка"])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+
+        save_btn = QPushButton("Сохранить результаты")
+        save_btn.clicked.connect(self.save_results)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.table)
+        layout.addWidget(save_btn)
+        self.setLayout(layout)
+        self.load_rows()
+
+    def load_rows(self) -> None:
+        swimmers = self.service.repo.list_swimmers(self.event_id)
+        self.table.setRowCount(len(swimmers))
+        for row_idx, s in enumerate(swimmers):
+            values = [
+                str(s.id),
+                f"{s.heat or '-'} / {s.lane or '-'}",
+                s.full_name,
+                s.team or "",
+                s.seed_time_raw or "",
+            ]
+            for col_idx, val in enumerate(values):
+                item = QTableWidgetItem(val)
+                if col_idx < 5:
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.table.setItem(row_idx, col_idx, item)
+
+            self.table.setItem(row_idx, 5, QTableWidgetItem(s.result_time_raw or ""))
+            self.table.setItem(row_idx, 6, QTableWidgetItem(s.result_mark or ""))
+
+    def save_results(self) -> None:
+        payload: list[dict[str, str]] = []
+        for row in range(self.table.rowCount()):
+            payload.append(
+                {
+                    "swimmer_id": self.table.item(row, 0).text(),
+                    "result_time_raw": self.table.item(row, 5).text() if self.table.item(row, 5) else "",
+                    "result_mark": self.table.item(row, 6).text() if self.table.item(row, 6) else "",
+                }
+            )
+        self.service.save_event_results(self.event_id, payload)
+        QMessageBox.information(self, "Результаты", "Результаты сохранены")
+        self.accept()
+
+
+class ProtocolDialog(QDialog):
+    def __init__(self, service: MeetService, title: str, build_html, self_parent: QWidget | None = None):
+        super().__init__(self_parent)
+        self.service = service
+        self.build_html = build_html
+        self.setWindowTitle(title)
+        self.resize(1000, 700)
+
+        self.group_by_heat = QCheckBox("Группировать по заплывам/дорожкам")
+        self.group_by_heat.setChecked(True)
+        self.group_by_heat.stateChanged.connect(self.refresh_html)
+
+        self.viewer = QTextEdit()
+        self.viewer.setReadOnly(True)
+
+        refresh_btn = QPushButton("Обновить")
+        refresh_btn.clicked.connect(self.refresh_html)
+        print_btn = QPushButton("Печать")
+        print_btn.clicked.connect(self.print_protocol)
+        save_btn = QPushButton("Сохранить")
+        save_btn.clicked.connect(self.save_protocol)
+
+        toolbar = QHBoxLayout()
+        toolbar.addWidget(self.group_by_heat)
+        toolbar.addWidget(refresh_btn)
+        toolbar.addWidget(print_btn)
+        toolbar.addWidget(save_btn)
+
+        layout = QVBoxLayout()
+        layout.addLayout(toolbar)
+        layout.addWidget(self.viewer)
+        self.setLayout(layout)
+        self.refresh_html()
+
+    def current_html(self) -> str:
+        return self.build_html(self.group_by_heat.isChecked())
+
+    def refresh_html(self) -> None:
+        self.viewer.setHtml(self.current_html())
+
+    def print_protocol(self) -> None:
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        dialog = QPrintDialog(printer, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            doc = QTextDocument()
+            doc.setHtml(self.current_html())
+            doc.print(printer)
+
+    def save_protocol(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Сохранить протокол",
+            str(Path.home() / "protocol.html"),
+            "HTML (*.html);;Text (*.txt)",
+        )
+        if not path:
+            return
+        text = self.current_html()
+        Path(path).write_text(text, encoding="utf-8")
+        QMessageBox.information(self, "Сохранение", f"Протокол сохранён: {path}")
 
 
 def run_app() -> None:

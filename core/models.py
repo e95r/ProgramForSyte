@@ -16,6 +16,9 @@ class Swimmer:
     heat: Optional[int]
     lane: Optional[int]
     status: str = "OK"
+    result_time_raw: Optional[str] = None
+    result_time_cs: Optional[int] = None
+    result_mark: Optional[str] = None
 
 
 @dataclass(slots=True)
