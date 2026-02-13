@@ -270,7 +270,12 @@ class MainWindow(QMainWindow):
         dialog = ProtocolDialog(
             self.service,
             title="Итоговый протокол соревнований",
-            build_html=lambda grouped, sort_by: self.service.build_final_protocol(grouped=grouped, sort_by=sort_by),
+            build_html=lambda grouped, sort_by, sort_desc, group_by: self.service.build_final_protocol(
+                grouped=grouped,
+                sort_by=sort_by,
+                sort_desc=sort_desc,
+                group_by=group_by,
+            ),
             allow_sorting=True,
             self_parent=self,
         )
@@ -371,14 +376,24 @@ class ProtocolDialog(QDialog):
 
         self.group_mode_combo = QComboBox()
         self.group_mode_combo.addItem("Группировка: по заплывам/дорожкам", "heat")
+        if allow_sorting:
+            self.group_mode_combo.addItem("Группировка: по команде", "team")
+            self.group_mode_combo.addItem("Группировка: по году рождения", "birth_year")
+            self.group_mode_combo.addItem("Группировка: по отметке", "mark")
         self.group_mode_combo.addItem("Группировка: без группировки", "none")
         self.group_mode_combo.currentIndexChanged.connect(self.refresh_html)
 
         self.sort_combo = QComboBox()
         self.sort_combo.addItem("Сортировка: по месту", "place")
+        self.sort_combo.addItem("Сортировка: по ФИО", "full_name")
         self.sort_combo.addItem("Сортировка: по отметке", "mark")
         self.sort_combo.currentIndexChanged.connect(self.refresh_html)
         self.sort_combo.setVisible(allow_sorting)
+
+        self.place_sort_btn = QPushButton("Место ↑")
+        self.place_sort_btn.setVisible(allow_sorting)
+        self.place_sort_btn.clicked.connect(self.toggle_place_sort_order)
+        self.sort_desc = False
 
         self.viewer = QTextEdit()
         self.viewer.setReadOnly(True)
@@ -393,6 +408,7 @@ class ProtocolDialog(QDialog):
         toolbar = QHBoxLayout()
         toolbar.addWidget(self.group_mode_combo)
         toolbar.addWidget(self.sort_combo)
+        toolbar.addWidget(self.place_sort_btn)
         toolbar.addWidget(refresh_btn)
         toolbar.addWidget(print_btn)
         toolbar.addWidget(save_btn)
@@ -404,10 +420,19 @@ class ProtocolDialog(QDialog):
         self.refresh_html()
 
     def current_html(self) -> str:
-        grouped = self.group_mode_combo.currentData() == "heat"
+        group_mode = self.group_mode_combo.currentData()
+        grouped = group_mode != "none"
         if self.allow_sorting:
-            return self.build_html(grouped, self.sort_combo.currentData())
+            return self.build_html(grouped, self.sort_combo.currentData(), self.sort_desc, group_mode)
         return self.build_html(grouped)
+
+    def toggle_place_sort_order(self) -> None:
+        if not self.allow_sorting:
+            return
+        self.sort_combo.setCurrentIndex(self.sort_combo.findData("place"))
+        self.sort_desc = not self.sort_desc
+        self.place_sort_btn.setText("Место ↓" if self.sort_desc else "Место ↑")
+        self.refresh_html()
 
     def refresh_html(self) -> None:
         self.viewer.setHtml(self.current_html())
