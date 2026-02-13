@@ -65,3 +65,26 @@ def test_final_protocol_sort_by_mark(tmp_path: Path):
         assert html.index("DNS") < html.index("DQ") < html.index("<td>C</td>")
     finally:
         service.close()
+
+
+def test_final_protocol_grouped_and_sorted_by_mark(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("200m")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "A", "heat": 1, "result_mark": "DNS"},
+                {"full_name": "B", "heat": 1, "result_mark": "DQ"},
+                {"full_name": "C", "heat": 1, "result_mark": ""},
+            ],
+        )
+
+        html = service.build_final_protocol(grouped=True, sort_by="mark")
+        heat_block_start = html.index("<b>Заплыв 1</b>")
+        dns_pos = html.index("DNS", heat_block_start)
+        dq_pos = html.index("DQ", heat_block_start)
+        c_pos = html.index("<td>C</td>", heat_block_start)
+        assert dns_pos < dq_pos < c_pos
+    finally:
+        service.close()
