@@ -142,3 +142,13 @@ class MeetRepository:
             swimmer_ids,
         )
         self.conn.commit()
+
+    def restore_swimmers(self, swimmer_ids: list[int]) -> None:
+        if not swimmer_ids:
+            return
+        placeholders = ",".join(["?"] * len(swimmer_ids))
+        self.conn.execute(
+            f"UPDATE swimmers SET status='OK' WHERE id IN ({placeholders})",
+            swimmer_ids,
+        )
+        self.conn.commit()

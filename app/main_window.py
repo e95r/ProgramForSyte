@@ -53,8 +53,12 @@ class MainWindow(QMainWindow):
         import_btn.clicked.connect(self.import_excel)
         backup_btn = QPushButton("Бэкап БД")
         backup_btn.clicked.connect(self.make_backup)
-        dns_btn = QPushButton("Пометить DNS и пересобрать")
-        dns_btn.clicked.connect(self.mark_dns)
+        mark_absent_btn = QPushButton("Не явился")
+        mark_absent_btn.clicked.connect(self.mark_absent)
+        restore_btn = QPushButton("Вернуть в заплывы")
+        restore_btn.clicked.connect(self.restore_swimmers)
+        reseed_btn = QPushButton("Пересобрать")
+        reseed_btn.clicked.connect(self.reseed_event)
 
         left = QVBoxLayout()
         left.addWidget(QLabel("Дистанции"))
@@ -66,7 +70,11 @@ class MainWindow(QMainWindow):
         right.addWidget(self.search_input)
         right.addWidget(self.full_reseed)
         right.addWidget(self.table)
-        right.addWidget(dns_btn)
+        actions = QHBoxLayout()
+        actions.addWidget(mark_absent_btn)
+        actions.addWidget(restore_btn)
+        actions.addWidget(reseed_btn)
+        right.addLayout(actions)
 
         root_layout = QHBoxLayout()
         left_widget = QWidget(); left_widget.setLayout(left)
@@ -117,7 +125,7 @@ class MainWindow(QMainWindow):
                 s.team or "",
                 s.seed_time_raw or "",
                 f"{s.heat or '-'} / {s.lane or '-'}",
-                s.status,
+                self._status_label(s.status),
             ]
             for col_idx, val in enumerate(values):
                 cell = QTableWidgetItem(val)
@@ -154,16 +162,16 @@ class MainWindow(QMainWindow):
         self.refresh_events()
         QMessageBox.information(self, "Импорт", "Файл импортирован")
 
-    def mark_dns(self) -> None:
-        event_id = self.current_event_id()
-        if event_id is None:
-            return
+    def selected_swimmer_ids(self) -> list[int]:
         selected = self.table.selectionModel().selectedRows()
-        swimmer_ids = [int(self.table.item(idx.row(), 0).text()) for idx in selected]
-        if not swimmer_ids:
-            QMessageBox.warning(self, "DNS", "Выберите хотя бы одного спортсмена")
-            return
+        return [int(self.table.item(idx.row(), 0).text()) for idx in selected]
 
+    def _status_label(self, status: str) -> str:
+        if status == "DNS":
+            return "Не явился"
+        return "В заявке"
+
+    def reseed_mode(self) -> str:
         mode = "full" if self.full_reseed.isChecked() else "soft"
         if mode == "full":
             reply = QMessageBox.question(
@@ -172,9 +180,47 @@ class MainWindow(QMainWindow):
                 "Полный пересев изменит номера заплывов. Продолжить?",
             )
             if reply != QMessageBox.StandardButton.Yes:
-                return
+                return ""
+        return mode
 
-        self.service.mark_dns(event_id, swimmer_ids, mode=mode)
+    def mark_absent(self) -> None:
+        event_id = self.current_event_id()
+        if event_id is None:
+            return
+        swimmer_ids = self.selected_swimmer_ids()
+        if not swimmer_ids:
+            QMessageBox.warning(self, "Не явился", "Выберите хотя бы одного спортсмена")
+            return
+
+        self.service.mark_dns(event_id, swimmer_ids)
+        self.load_swimmers()
+
+    def restore_swimmers(self) -> None:
+        event_id = self.current_event_id()
+        if event_id is None:
+            return
+        swimmer_ids = self.selected_swimmer_ids()
+        if not swimmer_ids:
+            QMessageBox.warning(self, "Вернуть в заплывы", "Выберите хотя бы одного спортсмена")
+            return
+
+        mode = self.reseed_mode()
+        if not mode:
+            return
+
+        self.service.restore_swimmers(event_id, swimmer_ids, mode=mode)
+        self.load_swimmers()
+
+    def reseed_event(self) -> None:
+        event_id = self.current_event_id()
+        if event_id is None:
+            return
+
+        mode = self.reseed_mode()
+        if not mode:
+            return
+
+        self.service.reseed_event(event_id, mode=mode)
         self.load_swimmers()
 
     def make_backup(self) -> None:

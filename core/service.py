@@ -40,8 +40,16 @@ class MeetService:
             self.repo.add_swimmers(event_id, swimmers)
         self.repo.log("import_excel", str(excel_path))
 
-    def mark_dns(self, event_id: int, swimmer_ids: list[int], mode: str = "soft") -> None:
+    def mark_dns(self, event_id: int, swimmer_ids: list[int]) -> None:
         self.repo.set_dns(swimmer_ids)
+        self.repo.log("mark_dns", f"event={event_id}; ids={swimmer_ids}")
+
+    def restore_swimmers(self, event_id: int, swimmer_ids: list[int], mode: str = "soft") -> None:
+        self.repo.restore_swimmers(swimmer_ids)
+        self.reseed_event(event_id, mode=mode)
+        self.repo.log("restore_swimmers", f"event={event_id}; ids={swimmer_ids}; mode={mode}")
+
+    def reseed_event(self, event_id: int, mode: str = "soft") -> None:
         event = next(e for e in self.repo.list_events() if e.id == event_id)
         swimmers = self.repo.list_swimmers(event_id)
         if mode == "full":
@@ -49,4 +57,4 @@ class MeetService:
         else:
             updated = compress_lanes_within_heats(swimmers)
         self.repo.update_swimmer_positions(updated)
-        self.repo.log("mark_dns", f"event={event_id}; ids={swimmer_ids}; mode={mode}")
+        self.repo.log("reseed_event", f"event={event_id}; mode={mode}")
