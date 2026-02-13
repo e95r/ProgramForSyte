@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS swimmers (
     heat INTEGER,
     lane INTEGER,
     status TEXT NOT NULL DEFAULT 'OK',
+    result_time_raw TEXT,
+    result_time_cs INTEGER,
+    result_mark TEXT,
     FOREIGN KEY(event_id) REFERENCES events(id)
 );
 
@@ -47,7 +50,20 @@ class MeetRepository:
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate_schema()
         self.conn.commit()
+
+    def _migrate_schema(self) -> None:
+        existing_columns = {
+            row["name"] for row in self.conn.execute("PRAGMA table_info(swimmers)").fetchall()
+        }
+        for column, ddl in (
+            ("result_time_raw", "ALTER TABLE swimmers ADD COLUMN result_time_raw TEXT"),
+            ("result_time_cs", "ALTER TABLE swimmers ADD COLUMN result_time_cs INTEGER"),
+            ("result_mark", "ALTER TABLE swimmers ADD COLUMN result_mark TEXT"),
+        ):
+            if column not in existing_columns:
+                self.conn.execute(ddl)
 
     def close(self) -> None:
         self.conn.close()
@@ -78,8 +94,9 @@ class MeetRepository:
         self.conn.executemany(
             """
             INSERT INTO swimmers(
-                event_id, full_name, birth_year, team, seed_time_raw, seed_time_cs, heat, lane, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                event_id, full_name, birth_year, team, seed_time_raw, seed_time_cs, heat, lane, status,
+                result_time_raw, result_time_cs, result_mark
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -92,6 +109,9 @@ class MeetRepository:
                     s.get("heat"),
                     s.get("lane"),
                     s.get("status", "OK"),
+                    s.get("result_time_raw"),
+                    s.get("result_time_cs"),
+                    s.get("result_mark"),
                 )
                 for s in swimmers
             ],
@@ -122,6 +142,9 @@ class MeetRepository:
                 heat=r["heat"],
                 lane=r["lane"],
                 status=r["status"],
+                result_time_raw=r["result_time_raw"],
+                result_time_cs=r["result_time_cs"],
+                result_mark=r["result_mark"],
             )
             for r in rows
         ]
@@ -130,6 +153,13 @@ class MeetRepository:
         self.conn.executemany(
             "UPDATE swimmers SET heat=?, lane=?, status=? WHERE id=?",
             [(s.heat, s.lane, s.status, s.id) for s in swimmers],
+        )
+        self.conn.commit()
+
+    def save_results(self, swimmer_results: list[tuple[int, str | None, int | None, str | None]]) -> None:
+        self.conn.executemany(
+            "UPDATE swimmers SET result_time_raw=?, result_time_cs=?, result_mark=? WHERE id=?",
+            [(raw, cs, mark, swimmer_id) for swimmer_id, raw, cs, mark in swimmer_results],
         )
         self.conn.commit()
 
