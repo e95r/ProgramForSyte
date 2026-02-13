@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.service import MeetService
+from core.excel_importer import ExcelImportError
 
 
 class MainWindow(QMainWindow):
@@ -122,7 +123,12 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
-        self.service.import_startlist(Path(path))
+        try:
+            self.service.import_startlist(Path(path))
+        except ExcelImportError as exc:
+            QMessageBox.warning(self, "Ошибка импорта", str(exc))
+            return
+
         self.refresh_events()
         QMessageBox.information(self, "Импорт", "Файл импортирован")
 
