@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS swimmers (
     seed_time_cs INTEGER,
     heat INTEGER,
     lane INTEGER,
+    result_time_raw TEXT,
+    result_time_cs INTEGER,
+    result_status TEXT NOT NULL DEFAULT 'OK',
     status TEXT NOT NULL DEFAULT 'OK',
     FOREIGN KEY(event_id) REFERENCES events(id)
 );
@@ -47,7 +50,20 @@ class MeetRepository:
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate_swimmers_table()
         self.conn.commit()
+
+    def _migrate_swimmers_table(self) -> None:
+        columns = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(swimmers)").fetchall()
+        }
+        if "result_time_raw" not in columns:
+            self.conn.execute("ALTER TABLE swimmers ADD COLUMN result_time_raw TEXT")
+        if "result_time_cs" not in columns:
+            self.conn.execute("ALTER TABLE swimmers ADD COLUMN result_time_cs INTEGER")
+        if "result_status" not in columns:
+            self.conn.execute("ALTER TABLE swimmers ADD COLUMN result_status TEXT NOT NULL DEFAULT 'OK'")
 
     def close(self) -> None:
         self.conn.close()
@@ -78,8 +94,8 @@ class MeetRepository:
         self.conn.executemany(
             """
             INSERT INTO swimmers(
-                event_id, full_name, birth_year, team, seed_time_raw, seed_time_cs, heat, lane, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                event_id, full_name, birth_year, team, seed_time_raw, seed_time_cs, heat, lane, result_time_raw, result_time_cs, result_status, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -91,6 +107,9 @@ class MeetRepository:
                     s.get("seed_time_cs"),
                     s.get("heat"),
                     s.get("lane"),
+                    s.get("result_time_raw"),
+                    s.get("result_time_cs"),
+                    s.get("result_status", "OK"),
                     s.get("status", "OK"),
                 )
                 for s in swimmers
@@ -121,6 +140,49 @@ class MeetRepository:
                 seed_time_cs=r["seed_time_cs"],
                 heat=r["heat"],
                 lane=r["lane"],
+                result_time_raw=r["result_time_raw"],
+                result_time_cs=r["result_time_cs"],
+                result_status=r["result_status"],
+                status=r["status"],
+            )
+            for r in rows
+        ]
+
+    def set_result(self, swimmer_id: int, result_time_raw: str | None, result_time_cs: int | None, result_status: str) -> None:
+        self.conn.execute(
+            "UPDATE swimmers SET result_time_raw=?, result_time_cs=?, result_status=? WHERE id=?",
+            (result_time_raw, result_time_cs, result_status, swimmer_id),
+        )
+        self.conn.commit()
+
+    def list_event_results(self, event_id: int) -> list[Swimmer]:
+        rows = self.conn.execute(
+            """
+            SELECT * FROM swimmers
+            WHERE event_id=?
+            ORDER BY
+                CASE WHEN result_status='OK' AND result_time_cs IS NOT NULL THEN 0 ELSE 1 END,
+                result_time_cs,
+                CASE WHEN heat IS NULL THEN 999 ELSE heat END,
+                CASE WHEN lane IS NULL THEN 999 ELSE lane END,
+                full_name
+            """,
+            (event_id,),
+        ).fetchall()
+        return [
+            Swimmer(
+                id=int(r["id"]),
+                event_id=int(r["event_id"]),
+                full_name=r["full_name"],
+                birth_year=r["birth_year"],
+                team=r["team"],
+                seed_time_raw=r["seed_time_raw"],
+                seed_time_cs=r["seed_time_cs"],
+                heat=r["heat"],
+                lane=r["lane"],
+                result_time_raw=r["result_time_raw"],
+                result_time_cs=r["result_time_cs"],
+                result_status=r["result_status"],
                 status=r["status"],
             )
             for r in rows
