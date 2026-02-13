@@ -1,0 +1,3 @@
+This is a text placeholder to keep repository binary-free.
+Run: python data/create_sample_startlist.py
+It will generate a real Excel file at this path locally.

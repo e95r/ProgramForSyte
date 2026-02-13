@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Runtime artifacts
+meet/meet.db
+meet/backups/*.db
+
+# Generated sample workbook (binary)
