@@ -369,9 +369,10 @@ class ProtocolDialog(QDialog):
         self.setWindowTitle(title)
         self.resize(1000, 700)
 
-        self.group_by_heat = QCheckBox("Группировать по заплывам/дорожкам")
-        self.group_by_heat.setChecked(True)
-        self.group_by_heat.stateChanged.connect(self.refresh_html)
+        self.group_mode_combo = QComboBox()
+        self.group_mode_combo.addItem("Группировка: по заплывам/дорожкам", "heat")
+        self.group_mode_combo.addItem("Группировка: без группировки", "none")
+        self.group_mode_combo.currentIndexChanged.connect(self.refresh_html)
 
         self.sort_combo = QComboBox()
         self.sort_combo.addItem("Сортировка: по месту", "place")
@@ -390,7 +391,7 @@ class ProtocolDialog(QDialog):
         save_btn.clicked.connect(self.save_protocol)
 
         toolbar = QHBoxLayout()
-        toolbar.addWidget(self.group_by_heat)
+        toolbar.addWidget(self.group_mode_combo)
         toolbar.addWidget(self.sort_combo)
         toolbar.addWidget(refresh_btn)
         toolbar.addWidget(print_btn)
@@ -403,9 +404,10 @@ class ProtocolDialog(QDialog):
         self.refresh_html()
 
     def current_html(self) -> str:
+        grouped = self.group_mode_combo.currentData() == "heat"
         if self.allow_sorting:
-            return self.build_html(self.group_by_heat.isChecked(), self.sort_combo.currentData())
-        return self.build_html(self.group_by_heat.isChecked())
+            return self.build_html(grouped, self.sort_combo.currentData())
+        return self.build_html(grouped)
 
     def refresh_html(self) -> None:
         self.viewer.setHtml(self.current_html())

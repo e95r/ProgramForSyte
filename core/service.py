@@ -116,7 +116,8 @@ class MeetService:
 
         def sort_key(s):
             if sort_by == "mark":
-                return ((s.result_mark or "").strip() == "", (s.result_mark or "").strip(), s.full_name)
+                mark = (s.result_mark or "").strip()
+                return (mark == "", mark, s.full_name)
             return (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name)
 
         rows: list[str] = []
@@ -128,7 +129,7 @@ class MeetService:
             for heat in sorted(heats):
                 heat_title = "Без заплыва" if heat == 999 else f"Заплыв {heat}"
                 rows.append(f"<tr><td colspan='7'><b>{heat_title}</b></td></tr>")
-                for s in sorted(heats[heat], key=lambda x: (x.lane is None, x.lane or 999, x.full_name)):
+                for s in sorted(heats[heat], key=sort_key):
                     place = str(places.get(s.id, ""))
                     rows.append(row_html(s, place))
         else:
