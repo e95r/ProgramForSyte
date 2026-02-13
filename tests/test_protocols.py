@@ -31,6 +31,43 @@ def test_event_protocol_grouped_by_heats(tmp_path: Path):
         service.close()
 
 
+def test_event_protocol_sort_by_team(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("50m freestyle")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "B", "team": "Sharks"},
+                {"full_name": "A", "team": "Dolphins"},
+            ],
+        )
+
+        html = service.build_event_protocol(event_id, grouped=False, sort_by="team")
+        assert html.index("<td>A</td>") < html.index("<td>B</td>")
+    finally:
+        service.close()
+
+
+def test_event_protocol_grouped_by_status(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("100m freestyle")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "A", "status": "DNS"},
+                {"full_name": "B", "status": "OK"},
+            ],
+        )
+
+        html = service.build_event_protocol(event_id, grouped=True, group_by="status")
+        assert "<b>DNS</b>" in html
+        assert "<b>OK</b>" in html
+    finally:
+        service.close()
+
+
 def test_final_protocol_contains_all_events(tmp_path: Path):
     service = MeetService(tmp_path)
     try:

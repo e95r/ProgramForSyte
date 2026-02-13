@@ -70,10 +70,24 @@ class MeetService:
         self.repo.save_results(payload)
         self.repo.log("save_event_results", f"event={event_id}; rows={len(payload)}")
 
-    def build_event_protocol(self, event_id: int, grouped: bool = True) -> str:
+    def build_event_protocol(
+        self,
+        event_id: int,
+        grouped: bool = True,
+        sort_by: str = "place",
+        sort_desc: bool = False,
+        group_by: str = "heat",
+    ) -> str:
         event = next(e for e in self.repo.list_events() if e.id == event_id)
         swimmers = self.repo.list_swimmers(event_id)
-        return self._build_protocol_html(event.name, swimmers, grouped=grouped)
+        return self._build_protocol_html(
+            event.name,
+            swimmers,
+            grouped=grouped,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            group_by=group_by,
+        )
 
     def build_final_protocol(
         self,
@@ -131,14 +145,34 @@ class MeetService:
             )
 
         def sort_key(s):
+            if sort_by == "id":
+                return (s.id,)
+            if sort_by == "team":
+                team = (s.team or "").strip()
+                return (team == "", team.lower(), s.full_name.lower())
+            if sort_by == "birth_year":
+                return (s.birth_year is None, s.birth_year or 0, s.full_name.lower())
+            if sort_by == "seed_time":
+                return (s.seed_time_cs is None, s.seed_time_cs or 99999999, s.full_name.lower())
+            if sort_by == "result_time":
+                return (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name.lower())
+            if sort_by == "heat":
+                return (s.heat is None, s.heat or 999, s.lane is None, s.lane or 999, s.full_name.lower())
+            if sort_by == "lane":
+                return (s.lane is None, s.lane or 999, s.heat is None, s.heat or 999, s.full_name.lower())
+            if sort_by == "status":
+                return ((s.status or "").lower(), s.full_name.lower())
             if sort_by == "mark":
                 mark = (s.result_mark or "").strip()
-                return (mark == "", mark, s.full_name)
+                return (mark == "", mark, s.full_name.lower())
             if sort_by == "full_name":
                 return (s.full_name.lower(),)
-            return (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name)
+            return (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name.lower())
 
         def group_key(s):
+            if group_by == "status":
+                status = (s.status or "").strip()
+                return (status.lower(),), status or "Статус не указан"
             if group_by == "team":
                 label = (s.team or "").strip()
                 return (label.lower(),), label or "Без команды"
@@ -148,6 +182,9 @@ class MeetService:
             if group_by == "mark":
                 mark = (s.result_mark or "").strip()
                 return (mark == "", mark), mark or "Без отметки"
+            if group_by == "lane":
+                lane = s.lane
+                return (lane is None, lane or 0), f"Дорожка {lane}" if lane else "Без дорожки"
             heat_key = s.heat or 999
             return (heat_key,), "Без заплыва" if heat_key == 999 else f"Заплыв {heat_key}"
 

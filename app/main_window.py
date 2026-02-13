@@ -261,7 +261,14 @@ class MainWindow(QMainWindow):
         dialog = ProtocolDialog(
             self.service,
             title="Протокол дистанции",
-            build_html=lambda grouped: self.service.build_event_protocol(event_id, grouped=grouped),
+            build_html=lambda grouped, sort_by, sort_desc, group_by: self.service.build_event_protocol(
+                event_id,
+                grouped=grouped,
+                sort_by=sort_by,
+                sort_desc=sort_desc,
+                group_by=group_by,
+            ),
+            allow_sorting=True,
             self_parent=self,
         )
         dialog.exec()
@@ -380,12 +387,22 @@ class ProtocolDialog(QDialog):
             self.group_mode_combo.addItem("Группировка: по команде", "team")
             self.group_mode_combo.addItem("Группировка: по году рождения", "birth_year")
             self.group_mode_combo.addItem("Группировка: по отметке", "mark")
+            self.group_mode_combo.addItem("Группировка: по статусу", "status")
+            self.group_mode_combo.addItem("Группировка: по дорожке", "lane")
         self.group_mode_combo.addItem("Группировка: без группировки", "none")
         self.group_mode_combo.currentIndexChanged.connect(self.refresh_html)
 
         self.sort_combo = QComboBox()
+        self.sort_combo.addItem("Сортировка: по ID", "id")
         self.sort_combo.addItem("Сортировка: по месту", "place")
         self.sort_combo.addItem("Сортировка: по ФИО", "full_name")
+        self.sort_combo.addItem("Сортировка: по команде", "team")
+        self.sort_combo.addItem("Сортировка: по году рождения", "birth_year")
+        self.sort_combo.addItem("Сортировка: по заявке", "seed_time")
+        self.sort_combo.addItem("Сортировка: по результату", "result_time")
+        self.sort_combo.addItem("Сортировка: по заплыву", "heat")
+        self.sort_combo.addItem("Сортировка: по дорожке", "lane")
+        self.sort_combo.addItem("Сортировка: по статусу", "status")
         self.sort_combo.addItem("Сортировка: по отметке", "mark")
         self.sort_combo.currentIndexChanged.connect(self.refresh_html)
         self.sort_combo.setVisible(allow_sorting)
