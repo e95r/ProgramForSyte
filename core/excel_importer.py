@@ -43,6 +43,31 @@ def _parse_heat_lane(text: object) -> tuple[int | None, int | None]:
 
 
 def import_excel(path: Path) -> dict[str, list[dict]]:
+    def _file_debug_message(file_path: Path) -> str:
+        exists = file_path.exists()
+        size = file_path.stat().st_size if exists else 0
+        suffix = file_path.suffix.lower()
+        return (
+            f"Selected: {file_path}\n"
+            f"Exists: {exists}\n"
+            f"Size: {size}\n"
+            f"Suffix: {suffix}"
+        )
+
+    def _validate_input_file(file_path: Path) -> None:
+        if not file_path.exists():
+            raise ExcelImportError("Выбранный файл не существует.")
+        size = file_path.stat().st_size
+        suffix = file_path.suffix.lower()
+        if size == 0:
+            raise ExcelImportError("Выбранный файл пустой (0 байт). Выберите корректный Excel-файл.")
+        if suffix not in {".xlsx", ".xlsm"}:
+            raise ExcelImportError("Поддерживаются только файлы .xlsx и .xlsm.")
+
+    initial_debug_message = _file_debug_message(path)
+    print(initial_debug_message)
+    _validate_input_file(path)
+
     if path.suffix.lower() == ".xls":
         raise ExcelImportError("Формат .xls не поддерживается. Сохраните файл как .xlsx и попробуйте снова.")
 
@@ -53,6 +78,9 @@ def import_excel(path: Path) -> dict[str, list[dict]]:
         raise ExcelImportError("Не установлен пакет openpyxl. Установите зависимости приложения.") from exc
 
     try:
+        pre_load_debug_message = _file_debug_message(path)
+        print(pre_load_debug_message)
+        _validate_input_file(path)
         wb = load_workbook(path, data_only=True)
     except (BadZipFile, InvalidFileException) as exc:
         raise ExcelImportError(
