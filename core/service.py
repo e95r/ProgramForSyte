@@ -75,7 +75,13 @@ class MeetService:
         swimmers = self.repo.list_swimmers(event_id)
         return self._build_protocol_html(event.name, swimmers, grouped=grouped)
 
-    def build_final_protocol(self, grouped: bool = True, sort_by: str = "place") -> str:
+    def build_final_protocol(
+        self,
+        grouped: bool = True,
+        sort_by: str = "place",
+        sort_desc: bool = False,
+        group_by: str = "heat",
+    ) -> str:
         blocks: list[str] = [
             "<style>@page { size: A4 portrait; margin: 12mm; } body { font-family: Arial, sans-serif; }"
             " h1, h2 { margin: 0 0 8px 0; } table { margin-bottom: 16px; font-size: 12px; border-collapse: collapse; }"
@@ -85,7 +91,15 @@ class MeetService:
         for event in self.repo.list_events():
             swimmers = self.repo.list_swimmers(event.id)
             blocks.append(
-                self._build_protocol_html(event.name, swimmers, grouped=grouped, with_title=True, sort_by=sort_by)
+                self._build_protocol_html(
+                    event.name,
+                    swimmers,
+                    grouped=grouped,
+                    with_title=True,
+                    sort_by=sort_by,
+                    sort_desc=sort_desc,
+                    group_by=group_by,
+                )
             )
         return "\n".join(blocks)
 
@@ -96,6 +110,8 @@ class MeetService:
         grouped: bool,
         with_title: bool = True,
         sort_by: str = "place",
+        sort_desc: bool = False,
+        group_by: str = "heat",
     ) -> str:
         active = [s for s in swimmers if s.status != "DNS"]
         ranked = sorted(active, key=lambda s: (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name))
@@ -118,22 +134,38 @@ class MeetService:
             if sort_by == "mark":
                 mark = (s.result_mark or "").strip()
                 return (mark == "", mark, s.full_name)
+            if sort_by == "full_name":
+                return (s.full_name.lower(),)
             return (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name)
+
+        def group_key(s):
+            if group_by == "team":
+                label = (s.team or "").strip()
+                return (label.lower(),), label or "Без команды"
+            if group_by == "birth_year":
+                year = s.birth_year
+                return (year is None, year or 0), str(year) if year else "Год не указан"
+            if group_by == "mark":
+                mark = (s.result_mark or "").strip()
+                return (mark == "", mark), mark or "Без отметки"
+            heat_key = s.heat or 999
+            return (heat_key,), "Без заплыва" if heat_key == 999 else f"Заплыв {heat_key}"
 
         rows: list[str] = []
         if grouped:
-            heats: dict[int, list] = {}
+            groups: dict[tuple, dict[str, object]] = {}
             for s in swimmers:
-                heat_key = s.heat or 999
-                heats.setdefault(heat_key, []).append(s)
-            for heat in sorted(heats):
-                heat_title = "Без заплыва" if heat == 999 else f"Заплыв {heat}"
-                rows.append(f"<tr><td colspan='7'><b>{heat_title}</b></td></tr>")
-                for s in sorted(heats[heat], key=sort_key):
+                key, label = group_key(s)
+                if key not in groups:
+                    groups[key] = {"label": label, "rows": []}
+                groups[key]["rows"].append(s)
+            for group in sorted(groups):
+                rows.append(f"<tr><td colspan='7'><b>{groups[group]['label']}</b></td></tr>")
+                for s in sorted(groups[group]["rows"], key=sort_key, reverse=sort_desc):
                     place = str(places.get(s.id, ""))
                     rows.append(row_html(s, place))
         else:
-            for s in sorted(swimmers, key=sort_key):
+            for s in sorted(swimmers, key=sort_key, reverse=sort_desc):
                 place = str(places.get(s.id, ""))
                 rows.append(row_html(s, place))
 

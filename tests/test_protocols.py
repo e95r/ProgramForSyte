@@ -88,3 +88,42 @@ def test_final_protocol_grouped_and_sorted_by_mark(tmp_path: Path):
         assert dns_pos < dq_pos < c_pos
     finally:
         service.close()
+
+
+def test_final_protocol_place_sort_desc(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("50m")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "Fast", "result_time_raw": "00:30:00", "result_time_cs": 3000},
+                {"full_name": "Slow", "result_time_raw": "00:35:00", "result_time_cs": 3500},
+            ],
+        )
+
+        html = service.build_final_protocol(grouped=False, sort_by="place", sort_desc=True)
+        assert html.index("<td>Slow</td>") < html.index("<td>Fast</td>")
+    finally:
+        service.close()
+
+
+def test_final_protocol_grouped_by_team(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("100m")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "A", "team": "Sharks"},
+                {"full_name": "B", "team": "Dolphins"},
+                {"full_name": "C", "team": None},
+            ],
+        )
+
+        html = service.build_final_protocol(grouped=True, group_by="team")
+        assert "<b>Dolphins</b>" in html
+        assert "<b>Sharks</b>" in html
+        assert "<b>Без команды</b>" in html
+    finally:
+        service.close()
