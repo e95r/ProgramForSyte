@@ -54,6 +54,18 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setStyleSheet(
+            """
+            QTableWidget::item:selected {
+                background-color: #5b9dff;
+                color: #000000;
+            }
+            QTableWidget::item:selected:active {
+                background-color: #2f80ed;
+                color: #ffffff;
+            }
+            """
+        )
 
         import_btn = QPushButton("Импорт Excel")
         import_btn.clicked.connect(self.import_excel)
