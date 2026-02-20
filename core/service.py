@@ -37,8 +37,27 @@ class MeetService:
         imported = import_excel(excel_path)
         for event_name, swimmers in imported.items():
             event_id = self.repo.upsert_event(event_name)
+            swimmers = self._rebuild_start_protocol(swimmers)
             self.repo.add_swimmers(event_id, swimmers)
         self.repo.log("import_excel", str(excel_path))
+
+    def _rebuild_start_protocol(self, swimmers: list[dict], lanes_count: int = 8) -> list[dict]:
+        active = [dict(s) for s in swimmers if s.get("status") != "DNS"]
+        dns = [dict(s) for s in swimmers if s.get("status") == "DNS"]
+        active.sort(
+            key=lambda s: (
+                s.get("seed_time_cs") is None,
+                s.get("seed_time_cs") or 10**12,
+                (s.get("full_name") or "").lower(),
+            )
+        )
+        for idx, swimmer in enumerate(active):
+            swimmer["heat"] = idx // lanes_count + 1
+            swimmer["lane"] = idx % lanes_count + 1
+        for swimmer in dns:
+            swimmer["heat"] = None
+            swimmer["lane"] = None
+        return active + dns
 
     def mark_dns(self, event_id: int, swimmer_ids: list[int]) -> None:
         self.repo.set_dns(swimmer_ids)
@@ -104,6 +123,7 @@ class MeetService:
         ]
         for event in self.repo.list_events():
             swimmers = self.repo.list_swimmers(event.id)
+            swimmers = self._filter_final_protocol_swimmers(swimmers)
             blocks.append(
                 self._build_protocol_html(
                     event.name,
@@ -113,9 +133,18 @@ class MeetService:
                     sort_by=sort_by,
                     sort_desc=sort_desc,
                     group_by=group_by,
+                    compact=True,
                 )
             )
         return "\n".join(blocks)
+
+    def _filter_final_protocol_swimmers(self, swimmers: list) -> list:
+        disallowed_marks = {"DNS", "DQ"}
+        return [
+            s
+            for s in swimmers
+            if s.status != "DNS" and ((s.result_mark or "").strip().upper() not in disallowed_marks)
+        ]
 
     def _build_protocol_html(
         self,
@@ -126,12 +155,23 @@ class MeetService:
         sort_by: str = "place",
         sort_desc: bool = False,
         group_by: str = "heat",
+        compact: bool = False,
     ) -> str:
         active = [s for s in swimmers if s.status != "DNS"]
         ranked = sorted(active, key=lambda s: (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name))
         places = {s.id: idx + 1 for idx, s in enumerate(ranked) if s.result_time_cs is not None}
 
         def row_html(s, place: str) -> str:
+            if compact:
+                return (
+                    "<tr>"
+                    f"<td>{s.full_name}</td>"
+                    f"<td>{s.team or ''}</td>"
+                    f"<td>{s.seed_time_raw or ''}</td>"
+                    f"<td>{s.result_time_raw or ''}</td>"
+                    f"<td>{place}</td>"
+                    "</tr>"
+                )
             return (
                 "<tr>"
                 f"<td>{s.heat or '-'} / {s.lane or '-'}</td>"
@@ -197,7 +237,8 @@ class MeetService:
                     groups[key] = {"label": label, "rows": []}
                 groups[key]["rows"].append(s)
             for group in sorted(groups):
-                rows.append(f"<tr><td colspan='7'><b>{groups[group]['label']}</b></td></tr>")
+                col_span = "5" if compact else "7"
+                rows.append(f"<tr><td colspan='{col_span}'><b>{groups[group]['label']}</b></td></tr>")
                 for s in sorted(groups[group]["rows"], key=sort_key, reverse=sort_desc):
                     place = str(places.get(s.id, ""))
                     rows.append(row_html(s, place))
@@ -207,10 +248,15 @@ class MeetService:
                 rows.append(row_html(s, place))
 
         heading = f"<h2>{title}</h2>" if with_title else ""
+        header = (
+            "<tr><th>ФИО</th><th>Команда</th><th>Заявка</th><th>Результат</th><th>Место</th></tr>"
+            if compact
+            else "<tr><th>Заплыв/дорожка</th><th>ФИО</th><th>Команда</th><th>Заявка</th><th>Результат</th><th>Отм.</th><th>Место</th></tr>"
+        )
         return (
             f"{heading}"
             "<table border='1' cellspacing='0' cellpadding='4' width='100%'>"
-            "<tr><th>Заплыв/дорожка</th><th>ФИО</th><th>Команда</th><th>Заявка</th><th>Результат</th><th>Отм.</th><th>Место</th></tr>"
+            f"{header}"
             + "".join(rows)
             + "</table>"
         )

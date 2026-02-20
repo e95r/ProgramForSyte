@@ -49,8 +49,8 @@ class MainWindow(QMainWindow):
         self.full_reseed = QCheckBox("Полный пересев")
         self.full_reseed.setToolTip("Если включено — полностью пересчитать заплывы по заявочному времени")
 
-        self.table = QTableWidget(0, 8)
-        self.table.setHorizontalHeaderLabels(["ID", "ФИО", "Год", "Команда", "Время", "Заплыв", "Статус", "Результат"])
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["ФИО", "Год", "Команда", "Время", "Заплыв", "Статус", "Результат"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -146,7 +146,6 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(len(swimmers))
         for row_idx, s in enumerate(swimmers):
             values = [
-                str(s.id),
                 s.full_name,
                 str(s.birth_year or ""),
                 s.team or "",
@@ -157,6 +156,8 @@ class MainWindow(QMainWindow):
             ]
             for col_idx, val in enumerate(values):
                 cell = QTableWidgetItem(val)
+                if col_idx == 0:
+                    cell.setData(Qt.ItemDataRole.UserRole, s.id)
                 if s.status == "DNS":
                     cell.setForeground(Qt.GlobalColor.darkGray)
                 self.table.setItem(row_idx, col_idx, cell)
@@ -192,7 +193,15 @@ class MainWindow(QMainWindow):
 
     def selected_swimmer_ids(self) -> list[int]:
         selected = self.table.selectionModel().selectedRows()
-        return [int(self.table.item(idx.row(), 0).text()) for idx in selected]
+        ids: list[int] = []
+        for idx in selected:
+            item = self.table.item(idx.row(), 0)
+            if item is None:
+                continue
+            swimmer_id = item.data(Qt.ItemDataRole.UserRole)
+            if swimmer_id is not None:
+                ids.append(int(swimmer_id))
+        return ids
 
     def _status_label(self, status: str) -> str:
         if status == "DNS":
@@ -309,11 +318,11 @@ class ResultsEntryDialog(QDialog):
         self.setWindowTitle("Ввод результатов заплыва")
         self.resize(900, 600)
 
-        self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["ID", "Заплыв", "ФИО", "Команда", "Заявка", "Результат", "Отметка"])
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(["Заплыв", "ФИО", "Команда", "Заявка", "Результат", "Отметка"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setItemDelegateForColumn(5, TimeMaskDelegate(self.table))
-        self.table.setItemDelegateForColumn(6, MarkDelegate(self.table))
+        self.table.setItemDelegateForColumn(4, TimeMaskDelegate(self.table))
+        self.table.setItemDelegateForColumn(5, MarkDelegate(self.table))
 
         mark_hint = QLabel("Отметка: используйте коды судейства (например, DNS, DQ, EXH), если нужен комментарий к результату.")
         mark_hint.setWordWrap(True)
@@ -333,7 +342,6 @@ class ResultsEntryDialog(QDialog):
         self.table.setRowCount(len(swimmers))
         for row_idx, s in enumerate(swimmers):
             values = [
-                str(s.id),
                 f"{s.heat or '-'} / {s.lane or '-'}",
                 s.full_name,
                 s.team or "",
@@ -341,21 +349,23 @@ class ResultsEntryDialog(QDialog):
             ]
             for col_idx, val in enumerate(values):
                 item = QTableWidgetItem(val)
-                if col_idx < 5:
+                if col_idx == 1:
+                    item.setData(Qt.ItemDataRole.UserRole, s.id)
+                if col_idx < 4:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(row_idx, col_idx, item)
 
-            self.table.setItem(row_idx, 5, QTableWidgetItem(s.result_time_raw or ""))
-            self.table.setItem(row_idx, 6, QTableWidgetItem(s.result_mark or ""))
+            self.table.setItem(row_idx, 4, QTableWidgetItem(s.result_time_raw or ""))
+            self.table.setItem(row_idx, 5, QTableWidgetItem(s.result_mark or ""))
 
     def save_results(self) -> None:
         payload: list[dict[str, str]] = []
         for row in range(self.table.rowCount()):
             payload.append(
                 {
-                    "swimmer_id": self.table.item(row, 0).text(),
-                    "result_time_raw": self.table.item(row, 5).text() if self.table.item(row, 5) else "",
-                    "result_mark": self.table.item(row, 6).text() if self.table.item(row, 6) else "",
+                    "swimmer_id": str(self.table.item(row, 1).data(Qt.ItemDataRole.UserRole)),
+                    "result_time_raw": self.table.item(row, 4).text() if self.table.item(row, 4) else "",
+                    "result_mark": self.table.item(row, 5).text() if self.table.item(row, 5) else "",
                 }
             )
         self.service.save_event_results(self.event_id, payload)
@@ -405,7 +415,6 @@ class ProtocolDialog(QDialog):
         self.group_mode_combo.currentIndexChanged.connect(self.refresh_html)
 
         self.sort_combo = QComboBox()
-        self.sort_combo.addItem("Сортировка: по ID", "id")
         self.sort_combo.addItem("Сортировка: по месту", "place")
         self.sort_combo.addItem("Сортировка: по ФИО", "full_name")
         self.sort_combo.addItem("Сортировка: по команде", "team")
@@ -476,16 +485,28 @@ class ProtocolDialog(QDialog):
             doc.print(printer)
 
     def save_protocol(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(
+        path, selected_filter = QFileDialog.getSaveFileName(
             self,
             "Сохранить протокол",
-            str(Path.home() / "protocol.html"),
-            "HTML (*.html);;Text (*.txt)",
+            str(Path.home() / "protocol.pdf"),
+            "PDF (*.pdf);;HTML (*.html);;Text (*.txt)",
         )
         if not path:
             return
-        text = self.current_html()
-        Path(path).write_text(text, encoding="utf-8")
+
+        if selected_filter.startswith("PDF") or path.lower().endswith(".pdf"):
+            if not path.lower().endswith(".pdf"):
+                path = f"{path}.pdf"
+            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+            printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+            printer.setOutputFileName(path)
+            printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+            doc = QTextDocument()
+            doc.setHtml(self.current_html())
+            doc.print(printer)
+        else:
+            text = self.current_html()
+            Path(path).write_text(text, encoding="utf-8")
         QMessageBox.information(self, "Сохранение", f"Протокол сохранён: {path}")
 
 

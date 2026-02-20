@@ -42,6 +42,22 @@ def _parse_heat_lane(text: object) -> tuple[int | None, int | None]:
     return None, None
 
 
+def _parse_birth_year(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        year = int(value)
+        return year if 1900 <= year <= 2100 else None
+    text = str(value).strip()
+    if not text:
+        return None
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if len(digits) == 4:
+        year = int(digits)
+        return year if 1900 <= year <= 2100 else None
+    return None
+
+
 def import_excel(path: Path) -> dict[str, list[dict]]:
     def _file_debug_message(file_path: Path) -> str:
         exists = file_path.exists()
@@ -122,7 +138,7 @@ def import_excel(path: Path) -> dict[str, list[dict]]:
             swimmers.append(
                 {
                     "full_name": name,
-                    "birth_year": int(year) if isinstance(year, (int, float)) else None,
+                    "birth_year": _parse_birth_year(year),
                     "team": str(team).strip() if team is not None else None,
                     "seed_time_raw": seed_raw_text,
                     "seed_time_cs": parse_seed_time_to_cs(seed_raw_text),
