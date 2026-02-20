@@ -31,6 +31,29 @@ def test_event_protocol_grouped_by_heats(tmp_path: Path):
         service.close()
 
 
+
+
+def test_import_startlist_rebuilds_heats_and_lanes(tmp_path: Path):
+    from openpyxl import Workbook
+
+    source = tmp_path / "source.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "50m"
+    ws.append(["ФИО", "Заявочное время", "Заплыв/дорожка"])
+    ws.append(["Slow", "00:40:00", "6/3"])
+    ws.append(["Fast", "00:30:00", "5/1"])
+    wb.save(source)
+
+    service = MeetService(tmp_path)
+    try:
+        service.import_startlist(source)
+        event_id = service.repo.list_events()[0].id
+        swimmers = service.repo.list_swimmers(event_id)
+        assert [(s.full_name, s.heat, s.lane) for s in swimmers] == [("Fast", 1, 1), ("Slow", 1, 2)]
+    finally:
+        service.close()
+
 def test_event_protocol_sort_by_team(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
@@ -85,44 +108,37 @@ def test_final_protocol_contains_all_events(tmp_path: Path):
         service.close()
 
 
-def test_final_protocol_sort_by_mark(tmp_path: Path):
+def test_final_protocol_excludes_dns_and_dq(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
         event_id = service.repo.upsert_event("200m")
         service.repo.add_swimmers(
             event_id,
             [
-                {"full_name": "A", "result_mark": "DNS"},
-                {"full_name": "B", "result_mark": "DQ"},
-                {"full_name": "C", "result_mark": ""},
+                {"full_name": "A", "status": "DNS", "result_mark": ""},
+                {"full_name": "B", "status": "OK", "result_mark": "DQ"},
+                {"full_name": "C", "status": "OK", "result_mark": ""},
             ],
         )
 
-        html = service.build_final_protocol(grouped=False, sort_by="mark")
-        assert html.index("DNS") < html.index("DQ") < html.index("<td>C</td>")
+        html = service.build_final_protocol(grouped=False)
+        assert "<td>C</td>" in html
+        assert "<td>A</td>" not in html
+        assert "<td>B</td>" not in html
     finally:
         service.close()
 
 
-def test_final_protocol_grouped_and_sorted_by_mark(tmp_path: Path):
+def test_final_protocol_compact_columns(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
         event_id = service.repo.upsert_event("200m")
-        service.repo.add_swimmers(
-            event_id,
-            [
-                {"full_name": "A", "heat": 1, "result_mark": "DNS"},
-                {"full_name": "B", "heat": 1, "result_mark": "DQ"},
-                {"full_name": "C", "heat": 1, "result_mark": ""},
-            ],
-        )
+        service.repo.add_swimmers(event_id, [{"full_name": "C", "heat": 1, "lane": 4, "result_mark": "OK"}])
 
-        html = service.build_final_protocol(grouped=True, sort_by="mark")
-        heat_block_start = html.index("<b>Заплыв 1</b>")
-        dns_pos = html.index("DNS", heat_block_start)
-        dq_pos = html.index("DQ", heat_block_start)
-        c_pos = html.index("<td>C</td>", heat_block_start)
-        assert dns_pos < dq_pos < c_pos
+        html = service.build_final_protocol(grouped=True, sort_by="heat")
+        assert "Заплыв/дорожка" not in html
+        assert "Отм." not in html
+        assert "<th>ФИО</th>" in html
     finally:
         service.close()
 
