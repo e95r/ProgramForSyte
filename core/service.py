@@ -159,7 +159,16 @@ class MeetService:
     ) -> str:
         active = [s for s in swimmers if s.status != "DNS"]
         ranked = sorted(active, key=lambda s: (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name))
-        places = {s.id: idx + 1 for idx, s in enumerate(ranked) if s.result_time_cs is not None}
+        places: dict[int, int] = {}
+        last_time_cs = None
+        for idx, swimmer in enumerate(ranked, start=1):
+            if swimmer.result_time_cs is None:
+                continue
+            if swimmer.result_time_cs != last_time_cs:
+                places[swimmer.id] = idx
+                last_time_cs = swimmer.result_time_cs
+                continue
+            places[swimmer.id] = places[ranked[idx - 2].id]
 
         def row_html(s, place: str) -> str:
             if compact:
