@@ -161,6 +161,28 @@ def test_final_protocol_place_sort_desc(tmp_path: Path):
         service.close()
 
 
+def test_final_protocol_tie_places_skip_next_place(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("50m")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "A", "result_time_raw": "00:30:00", "result_time_cs": 3000},
+                {"full_name": "B", "result_time_raw": "00:31:00", "result_time_cs": 3100},
+                {"full_name": "C", "result_time_raw": "00:31:00", "result_time_cs": 3100},
+                {"full_name": "D", "result_time_raw": "00:32:00", "result_time_cs": 3200},
+            ],
+        )
+
+        html = service.build_final_protocol(grouped=False, sort_by="place")
+        assert html.index("<td>A</td>") < html.index("<td>1</td>")
+        assert html.count("<td>2</td>") == 2
+        assert html.index("<td>D</td>") < html.index("<td>4</td>")
+    finally:
+        service.close()
+
+
 def test_final_protocol_grouped_by_team(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
