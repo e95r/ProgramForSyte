@@ -19,10 +19,12 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QHeaderView,
     QTextEdit,
     QTableWidget,
     QTableWidgetItem,
     QStyledItemDelegate,
+    QListWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -51,6 +53,7 @@ class MainWindow(QMainWindow):
 
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(["ФИО", "Год", "Команда", "Время", "Заплыв", "Статус", "Результат"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -127,7 +130,9 @@ class MainWindow(QMainWindow):
     def refresh_events(self) -> None:
         self.events_list.clear()
         for event in self.service.repo.list_events():
-            self.events_list.addItem(f"{event.id}. {event.name}")
+            item = QListWidgetItem(event.name)
+            item.setData(Qt.ItemDataRole.UserRole, event.id)
+            self.events_list.addItem(item)
         if self.events_list.count() > 0:
             self.events_list.setCurrentRow(0)
 
@@ -135,7 +140,8 @@ class MainWindow(QMainWindow):
         item = self.events_list.currentItem()
         if not item:
             return None
-        return int(item.text().split(".", 1)[0])
+        event_id = item.data(Qt.ItemDataRole.UserRole)
+        return int(event_id) if event_id is not None else None
 
     def load_swimmers(self) -> None:
         event_id = self.current_event_id()
@@ -161,6 +167,7 @@ class MainWindow(QMainWindow):
                 if s.status == "DNS":
                     cell.setForeground(Qt.GlobalColor.darkGray)
                 self.table.setItem(row_idx, col_idx, cell)
+        self.table.resizeColumnsToContents()
 
     def import_excel(self) -> None:
         settings = QSettings("ProgramForSyte", "SwimMeet")
@@ -320,6 +327,7 @@ class ResultsEntryDialog(QDialog):
 
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(["Заплыв", "ФИО", "Команда", "Заявка", "Результат", "Отметка"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setItemDelegateForColumn(4, TimeMaskDelegate(self.table))
         self.table.setItemDelegateForColumn(5, MarkDelegate(self.table))
@@ -357,6 +365,7 @@ class ResultsEntryDialog(QDialog):
 
             self.table.setItem(row_idx, 4, QTableWidgetItem(s.result_time_raw or ""))
             self.table.setItem(row_idx, 5, QTableWidgetItem(s.result_mark or ""))
+        self.table.resizeColumnsToContents()
 
     def save_results(self) -> None:
         payload: list[dict[str, str]] = []
