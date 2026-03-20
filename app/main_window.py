@@ -10,35 +10,39 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
-    QFileDialog,
-    QHBoxLayout,
     QDialog,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QHeaderView,
-    QTextEdit,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
-    QStyledItemDelegate,
-    QListWidgetItem,
+    QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from core.service import MeetService
 from core.excel_importer import ExcelImportError
+from core.models import Secretary
+from core.service import MeetService
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, service: MeetService, root: Path):
+    def __init__(self, service: MeetService, root: Path, current_secretary: Secretary):
         super().__init__()
         self.service = service
         self.root = root
-        self.setWindowTitle("Swim Meet MVP A+B")
+        self.current_secretary = current_secretary
+        self.setWindowTitle(f"Swim Meet MVP A+B — секретарь: {current_secretary.display_name}")
         self.resize(1100, 700)
 
         self.events_list = QListWidget()
@@ -87,6 +91,12 @@ class MainWindow(QMainWindow):
         final_protocol_btn = QPushButton("Подвести итоги")
         final_protocol_btn.clicked.connect(self.open_final_protocol)
 
+        secretary_label = QLabel(
+            f"Вошёл секретарь: <b>{current_secretary.display_name}</b> ({current_secretary.username})<br>"
+            f"Всего зарегистрировано секретарей: {self.service.secretary_count()}"
+        )
+        secretary_label.setWordWrap(True)
+
         left = QVBoxLayout()
         left.addWidget(QLabel("Дистанции"))
         left.addWidget(self.events_list)
@@ -94,6 +104,7 @@ class MainWindow(QMainWindow):
         left.addWidget(backup_btn)
 
         right = QVBoxLayout()
+        right.addWidget(secretary_label)
         right.addWidget(self.search_input)
         right.addWidget(self.full_reseed)
         right.addWidget(self.table)
@@ -317,6 +328,128 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
 
+class SecretaryAuthDialog(QDialog):
+    def __init__(self, service: MeetService, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.service = service
+        self.authenticated_secretary: Secretary | None = None
+        self.setWindowTitle("Авторизация секретаря соревнований")
+        self.resize(520, 360)
+
+        layout = QVBoxLayout()
+        info = QLabel(
+            "Зарегистрируйте любое количество секретарей. Для входа используйте логин и пароль, "
+            "а при забытом пароле можно посмотреть сохранённую подсказку."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_login_tab(), "Авторизация")
+        self.tabs.addTab(self._build_register_tab(), "Регистрация")
+        self.tabs.addTab(self._build_recovery_tab(), "Забыл пароль")
+        layout.addWidget(self.tabs)
+
+        self.setLayout(layout)
+
+    def _build_login_tab(self) -> QWidget:
+        tab = QWidget()
+        form = QFormLayout()
+        self.login_username = QLineEdit()
+        self.login_username.setPlaceholderText("Логин")
+        self.login_password = QLineEdit()
+        self.login_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.login_password.setPlaceholderText("Пароль")
+        login_btn = QPushButton("Войти")
+        login_btn.clicked.connect(self.handle_login)
+        form.addRow("Логин", self.login_username)
+        form.addRow("Пароль", self.login_password)
+        form.addRow(login_btn)
+        tab.setLayout(form)
+        return tab
+
+    def _build_register_tab(self) -> QWidget:
+        tab = QWidget()
+        form = QFormLayout()
+        self.register_display_name = QLineEdit()
+        self.register_display_name.setPlaceholderText("Например: Главный секретарь")
+        self.register_username = QLineEdit()
+        self.register_username.setPlaceholderText("Уникальный логин")
+        self.register_password = QLineEdit()
+        self.register_password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.register_password.setPlaceholderText("Минимум 4 символа")
+        self.register_hint = QLineEdit()
+        self.register_hint.setPlaceholderText("Например: любимая команда")
+        register_btn = QPushButton("Зарегистрировать")
+        register_btn.clicked.connect(self.handle_register)
+        form.addRow("Имя секретаря", self.register_display_name)
+        form.addRow("Логин", self.register_username)
+        form.addRow("Пароль", self.register_password)
+        form.addRow("Подсказка", self.register_hint)
+        form.addRow(register_btn)
+        tab.setLayout(form)
+        return tab
+
+    def _build_recovery_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout()
+        form = QFormLayout()
+        self.recovery_username = QLineEdit()
+        self.recovery_username.setPlaceholderText("Введите логин секретаря")
+        show_hint_btn = QPushButton("Показать подсказку")
+        show_hint_btn.clicked.connect(self.handle_show_hint)
+        self.hint_output = QLabel("Подсказка появится здесь")
+        self.hint_output.setWordWrap(True)
+        form.addRow("Логин", self.recovery_username)
+        form.addRow(show_hint_btn)
+        layout.addLayout(form)
+        layout.addWidget(self.hint_output)
+        tab.setLayout(layout)
+        return tab
+
+    def handle_login(self) -> None:
+        username = self.login_username.text().strip()
+        password = self.login_password.text()
+        secretary = self.service.authenticate_secretary(username, password)
+        if secretary is None:
+            QMessageBox.warning(self, "Авторизация", "Неверный логин или пароль")
+            return
+        self.authenticated_secretary = secretary
+        self.accept()
+
+    def handle_register(self) -> None:
+        display_name = self.register_display_name.text().strip()
+        username = self.register_username.text().strip()
+        password = self.register_password.text()
+        hint = self.register_hint.text().strip()
+        try:
+            self.service.register_secretary(username, password, hint, display_name=display_name)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Регистрация", str(exc))
+            return
+
+        QMessageBox.information(
+            self,
+            "Регистрация",
+            f"Секретарь {display_name or username} зарегистрирован. Теперь можно войти под этим логином.",
+        )
+        self.login_username.setText(username)
+        self.login_password.clear()
+        self.tabs.setCurrentIndex(0)
+        self.register_display_name.clear()
+        self.register_username.clear()
+        self.register_password.clear()
+        self.register_hint.clear()
+
+    def handle_show_hint(self) -> None:
+        username = self.recovery_username.text().strip()
+        hint = self.service.get_secretary_password_hint(username)
+        if hint is None:
+            self.hint_output.setText("Секретарь с таким логином не найден.")
+            return
+        self.hint_output.setText(f"Подсказка для логина '{username}': {hint}")
+
+
 class ResultsEntryDialog(QDialog):
     def __init__(self, service: MeetService, event_id: int, parent: QWidget | None = None):
         super().__init__(parent)
@@ -523,7 +656,11 @@ def run_app() -> None:
     app = QApplication([])
     root = Path(__file__).resolve().parents[1]
     service = MeetService(root)
-    window = MainWindow(service, root)
+    auth_dialog = SecretaryAuthDialog(service)
+    if auth_dialog.exec() != QDialog.DialogCode.Accepted or auth_dialog.authenticated_secretary is None:
+        service.close()
+        return
+    window = MainWindow(service, root, auth_dialog.authenticated_secretary)
     window.show()
     app.exec()
     service.close()

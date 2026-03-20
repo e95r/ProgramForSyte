@@ -4,7 +4,7 @@ import sqlite3
 from pathlib import Path
 from typing import Iterable
 
-from core.models import Event, Swimmer
+from core.models import Event, Secretary, Swimmer
 
 
 SCHEMA = """
@@ -40,6 +40,16 @@ CREATE TABLE IF NOT EXISTS audit_log (
     action TEXT NOT NULL,
     details TEXT
 );
+
+
+CREATE TABLE IF NOT EXISTS secretaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    display_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    password_hint TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -64,6 +74,62 @@ class MeetRepository:
         ):
             if column not in existing_columns:
                 self.conn.execute(ddl)
+
+
+    def secretary_count(self) -> int:
+        row = self.conn.execute("SELECT COUNT(*) AS cnt FROM secretaries").fetchone()
+        return int(row["cnt"]) if row else 0
+
+    def create_secretary(
+        self,
+        username: str,
+        display_name: str,
+        password_hash: str,
+        password_hint: str,
+    ) -> int:
+        cursor = self.conn.execute(
+            """
+            INSERT INTO secretaries(username, display_name, password_hash, password_hint)
+            VALUES (?, ?, ?, ?)
+            """,
+            (username, display_name, password_hash, password_hint),
+        )
+        self.conn.commit()
+        return int(cursor.lastrowid)
+
+    def get_secretary_by_username(self, username: str) -> Secretary | None:
+        row = self.conn.execute(
+            "SELECT id, username, display_name, password_hint FROM secretaries WHERE lower(username)=lower(?)",
+            (username,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Secretary(
+            id=int(row["id"]),
+            username=row["username"],
+            display_name=row["display_name"],
+            password_hint=row["password_hint"],
+        )
+
+    def get_secretary_auth_row(self, username: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM secretaries WHERE lower(username)=lower(?)",
+            (username,),
+        ).fetchone()
+
+    def list_secretaries(self) -> list[Secretary]:
+        rows = self.conn.execute(
+            "SELECT id, username, display_name, password_hint FROM secretaries ORDER BY id"
+        ).fetchall()
+        return [
+            Secretary(
+                id=int(r["id"]),
+                username=r["username"],
+                display_name=r["display_name"],
+                password_hint=r["password_hint"],
+            )
+            for r in rows
+        ]
 
     def close(self) -> None:
         self.conn.close()

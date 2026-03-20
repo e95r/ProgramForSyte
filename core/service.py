@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import secrets
 import shutil
 from datetime import datetime
 from pathlib import Path
 from core.db import MeetRepository
+from core.models import Secretary
 from core.reseeding import compress_lanes_within_heats, full_reseed
 from core.time_utils import parse_seed_time_to_cs
 
@@ -29,6 +32,68 @@ class MeetService:
         backup_path = self.backup_dir / f"meet-{reason}-{stamp}.db"
         shutil.copy2(self.db_path, backup_path)
         return backup_path
+
+    def secretary_count(self) -> int:
+        return self.repo.secretary_count()
+
+    def _hash_password(self, password: str, salt: str | None = None) -> str:
+        salt = salt or secrets.token_hex(16)
+        digest = hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
+        return f"{salt}${digest}"
+
+    def _verify_password(self, password: str, stored_hash: str) -> bool:
+        try:
+            salt, digest = stored_hash.split("$", 1)
+        except ValueError:
+            return False
+        return self._hash_password(password, salt) == f"{salt}${digest}"
+
+    def register_secretary(
+        self,
+        username: str,
+        password: str,
+        password_hint: str,
+        display_name: str = "",
+    ) -> Secretary:
+        username = username.strip()
+        display_name = display_name.strip() or username
+        password_hint = password_hint.strip()
+        if not username:
+            raise ValueError("Укажите логин секретаря")
+        if len(password) < 4:
+            raise ValueError("Пароль должен содержать минимум 4 символа")
+        if not password_hint:
+            raise ValueError("Укажите подсказку для восстановления пароля")
+        if self.repo.get_secretary_by_username(username) is not None:
+            raise ValueError("Секретарь с таким логином уже зарегистрирован")
+        secretary_id = self.repo.create_secretary(
+            username=username,
+            display_name=display_name,
+            password_hash=self._hash_password(password),
+            password_hint=password_hint,
+        )
+        self.repo.log("register_secretary", f"username={username}")
+        return Secretary(secretary_id, username, display_name, password_hint)
+
+    def authenticate_secretary(self, username: str, password: str) -> Secretary | None:
+        row = self.repo.get_secretary_auth_row(username.strip())
+        if row is None or not self._verify_password(password, row["password_hash"]):
+            return None
+        secretary = Secretary(
+            id=int(row["id"]),
+            username=row["username"],
+            display_name=row["display_name"],
+            password_hint=row["password_hint"],
+        )
+        self.repo.log("authenticate_secretary", f"username={secretary.username}")
+        return secretary
+
+    def get_secretary_password_hint(self, username: str) -> str | None:
+        secretary = self.repo.get_secretary_by_username(username.strip())
+        if secretary is None:
+            return None
+        self.repo.log("password_hint_requested", f"username={secretary.username}")
+        return secretary.password_hint
 
     def import_startlist(self, excel_path: Path) -> None:
         self.repo.clear_all()
