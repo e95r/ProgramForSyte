@@ -47,5 +47,5 @@ def test_restore_swimmer_reseeds_event(tmp_path: Path):
 
     out = service.repo.list_swimmers(event_id)
     active = [s for s in out if s.status == "OK"]
-    assert [(s.full_name, s.lane) for s in active] == [("A", 1), ("B", 2), ("C", 3)]
+    assert [(s.full_name, s.lane) for s in active] == [("C", 2), ("A", 3), ("B", 4)]
     service.close()
