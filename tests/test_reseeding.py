@@ -25,11 +25,11 @@ def test_soft_compress_lanes_keeps_heats():
         make_swimmer(4, 2, 2),
     ]
 
-    out = compress_lanes_within_heats(swimmers)
+    out = compress_lanes_within_heats(swimmers, lanes_count=6)
     active = {s.id: s for s in out if s.status != "DNS"}
-    assert active[1].heat == 1 and active[1].lane == 1
-    assert active[3].heat == 1 and active[3].lane == 2
-    assert active[4].heat == 2 and active[4].lane == 1
+    assert active[1].heat == 1 and active[1].lane == 3
+    assert active[3].heat == 1 and active[3].lane == 4
+    assert active[4].heat == 2 and active[4].lane == 3
 
 
 def test_full_reseed_by_seed_time():
@@ -42,4 +42,18 @@ def test_full_reseed_by_seed_time():
 
     out = full_reseed(swimmers, lanes_count=2)
     active = [s for s in out if s.status != "DNS"]
-    assert [(s.id, s.heat, s.lane) for s in active] == [(2, 1, 1), (1, 1, 2), (3, 2, 1)]
+    assert [(s.id, s.heat, s.lane) for s in active] == [(1, 1, 1), (3, 1, 2), (2, 2, 1)]
+
+
+def test_lane_order_for_six_lanes_places_fastest_in_center_lanes():
+    swimmers = [
+        make_swimmer(1, 1, None, seed=7000),
+        make_swimmer(2, 1, None, seed=6900),
+        make_swimmer(3, 1, None, seed=6800),
+        make_swimmer(4, 1, None, seed=6700),
+        make_swimmer(5, 1, None, seed=6600),
+        make_swimmer(6, 1, None, seed=6500),
+    ]
+
+    out = compress_lanes_within_heats(swimmers, lanes_count=6)
+    assert [(s.id, s.lane) for s in out if s.status != "DNS"] == [(2, 1), (4, 2), (6, 3), (5, 4), (3, 5), (1, 6)]
