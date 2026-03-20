@@ -139,7 +139,7 @@ class MeetService:
         if mode == "full":
             updated = full_reseed(swimmers, lanes_count=event.lanes_count)
         else:
-            updated = compress_lanes_within_heats(swimmers)
+            updated = compress_lanes_within_heats(swimmers, lanes_count=event.lanes_count)
         self.repo.update_swimmer_positions(updated)
         self.repo.log("reseed_event", f"event={event_id}; mode={mode}")
 
