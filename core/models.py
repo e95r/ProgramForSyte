@@ -26,3 +26,12 @@ class Event:
     id: int
     name: str
     lanes_count: int
+
+
+
+@dataclass(slots=True)
+class Secretary:
+    id: int
+    username: str
+    display_name: str
+    password_hint: str
