@@ -33,7 +33,7 @@ def test_event_protocol_grouped_by_heats(tmp_path: Path):
 
 
 
-def test_import_startlist_rebuilds_heats_and_lanes(tmp_path: Path):
+def test_import_startlist_keeps_combined_heat_and_lane_from_excel(tmp_path: Path):
     from openpyxl import Workbook
 
     source = tmp_path / "source.xlsx"
@@ -50,7 +50,7 @@ def test_import_startlist_rebuilds_heats_and_lanes(tmp_path: Path):
         service.import_startlist(source)
         event_id = service.repo.list_events()[0].id
         swimmers = service.repo.list_swimmers(event_id)
-        assert [(s.full_name, s.heat, s.lane) for s in swimmers] == [("Fast", 1, 1), ("Slow", 1, 2)]
+        assert [(s.full_name, s.heat, s.lane) for s in swimmers] == [("Fast", 5, 1), ("Slow", 6, 3)]
     finally:
         service.close()
 
@@ -80,7 +80,7 @@ def test_import_startlist_keeps_grouped_protocol_heats_and_lanes(tmp_path: Path)
         service.close()
 
 
-def test_import_startlist_rebuilds_combined_protocol_using_inferred_lane_count(tmp_path: Path):
+def test_import_startlist_keeps_combined_protocol_and_infers_lane_count(tmp_path: Path):
     from openpyxl import Workbook
 
     source = tmp_path / "combined-six-lanes.xlsx"
@@ -109,17 +109,17 @@ def test_import_startlist_rebuilds_combined_protocol_using_inferred_lane_count(t
 
         assert event.lanes_count == 6
         assert [(s.full_name, s.heat, s.lane) for s in swimmers] == [
-            ("Васильев Григорий", 1, 1),
-            ("Андреева Дарья", 1, 2),
-            ("Кузнецова Ольга", 1, 3),
-            ("Гаврилова Вероника", 1, 4),
-            ("Андреева Алина", 1, 5),
-            ("Жуков Максим", 1, 6),
-            ("Андреев Александр", 2, 1),
-            ("Белова Екатерина", 2, 2),
-            ("Кузнецов Юрий", 2, 3),
-            ("Козлов Андрей", 2, 4),
-            ("Жуков Илья", 2, 5),
+            ("Жуков Илья", 1, 1),
+            ("Кузнецов Юрий", 1, 2),
+            ("Андреев Александр", 1, 3),
+            ("Белова Екатерина", 1, 4),
+            ("Козлов Андрей", 1, 5),
+            ("Андреева Алина", 2, 1),
+            ("Кузнецова Ольга", 2, 2),
+            ("Васильев Григорий", 2, 3),
+            ("Андреева Дарья", 2, 4),
+            ("Гаврилова Вероника", 2, 5),
+            ("Жуков Максим", 2, 6),
         ]
     finally:
         service.close()
