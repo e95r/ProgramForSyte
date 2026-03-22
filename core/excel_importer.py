@@ -17,7 +17,7 @@ HEADER_ALIASES = {
 }
 
 EVENT_TITLE_RE = re.compile(
-    r"^\s*\d+\s*[-–—]\s*.+$|^\s*\d+\s*(м|метр|метров)\b.+$",
+    r"^\s*(?:\d+\s*[xх×]\s*\d+|\d+)(?:\s*[-–—]\s*|\s*(?:м|метр|метров)\b\s*).+$",
     re.IGNORECASE,
 )
 
