@@ -54,6 +54,31 @@ def test_import_startlist_rebuilds_heats_and_lanes(tmp_path: Path):
     finally:
         service.close()
 
+
+def test_import_startlist_keeps_grouped_protocol_heats_and_lanes(tmp_path: Path):
+    from openpyxl import Workbook
+
+    source = tmp_path / "grouped-source.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Старт"
+    ws.append(["Турнир"])
+    ws.append(["100 — Брасс все"])
+    ws.append(["Заплыв", "Дорожка", "Ф. И.", "Год рождения", "Команда", "Заявочное время"])
+    ws.append([2, 3, "Slow", 2010, "Team", "00:40:00"])
+    ws.append([None, 4, "Fast", 2011, "Team", "00:30:00"])
+    wb.save(source)
+
+    service = MeetService(tmp_path)
+    try:
+        service.import_startlist(source)
+        event = service.repo.list_events()[0]
+        swimmers = service.repo.list_swimmers(event.id)
+        assert event.name == "100 — Брасс все"
+        assert [(s.full_name, s.heat, s.lane) for s in swimmers] == [("Slow", 2, 3), ("Fast", 2, 4)]
+    finally:
+        service.close()
+
 def test_event_protocol_sort_by_team(tmp_path: Path):
     service = MeetService(tmp_path)
     try:

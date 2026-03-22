@@ -102,9 +102,34 @@ class MeetService:
         imported = import_excel(excel_path)
         for event_name, swimmers in imported.items():
             event_id = self.repo.upsert_event(event_name)
-            swimmers = self._rebuild_start_protocol(swimmers)
+            swimmers = self._normalize_imported_start_protocol(swimmers)
             self.repo.add_swimmers(event_id, swimmers)
         self.repo.log("import_excel", str(excel_path))
+
+    def _normalize_imported_start_protocol(self, swimmers: list[dict], lanes_count: int = 8) -> list[dict]:
+        active = [dict(s) for s in swimmers if s.get("status") != "DNS"]
+        if active and all(
+            s.get("heat") is not None
+            and s.get("lane") is not None
+            and s.get("source_heat_lane") == "separate"
+            for s in active
+        ):
+            ordered_active = sorted(
+                active,
+                key=lambda s: (
+                    s.get("heat") is None,
+                    s.get("heat") or 10**12,
+                    s.get("lane") is None,
+                    s.get("lane") or 10**12,
+                    (s.get("full_name") or "").lower(),
+                ),
+            )
+            dns = [dict(s) for s in swimmers if s.get("status") == "DNS"]
+            for swimmer in dns:
+                swimmer["heat"] = None
+                swimmer["lane"] = None
+            return ordered_active + dns
+        return self._rebuild_start_protocol(swimmers, lanes_count=lanes_count)
 
     def _rebuild_start_protocol(self, swimmers: list[dict], lanes_count: int = 8) -> list[dict]:
         active = [dict(s) for s in swimmers if s.get("status") != "DNS"]
