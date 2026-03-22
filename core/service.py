@@ -124,12 +124,7 @@ class MeetService:
 
     def _normalize_imported_start_protocol(self, swimmers: list[dict], lanes_count: int = 8) -> list[dict]:
         active = [dict(s) for s in swimmers if s.get("status") != "DNS"]
-        if active and all(
-            s.get("heat") is not None
-            and s.get("lane") is not None
-            and s.get("source_heat_lane") == "separate"
-            for s in active
-        ):
+        if active and all(s.get("heat") is not None and s.get("lane") is not None for s in active):
             ordered_active = sorted(
                 active,
                 key=lambda s: (
