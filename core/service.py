@@ -100,12 +100,18 @@ class MeetService:
         from core.excel_importer import import_excel
 
         imported = import_excel(excel_path)
+        self.repo.set_meta("competition_title", self._derive_competition_title(excel_path))
         for event_name, swimmers in imported.items():
             lanes_count = self._infer_imported_lanes_count(swimmers)
             event_id = self.repo.upsert_event(event_name, lanes_count=lanes_count)
             swimmers = self._normalize_imported_start_protocol(swimmers, lanes_count=lanes_count)
             self.repo.add_swimmers(event_id, swimmers)
         self.repo.log("import_excel", str(excel_path))
+
+    def _derive_competition_title(self, excel_path: Path) -> str:
+        raw_title = excel_path.stem.replace("_", " ").replace("-", " ")
+        normalized = " ".join(raw_title.split())
+        return normalized or "Итоговый протокол соревнований"
 
     def _infer_imported_lanes_count(self, swimmers: list[dict], default: int = 8) -> int:
         lanes = [int(lane) for lane in (s.get("lane") for s in swimmers) if isinstance(lane, int) and lane > 0]
@@ -216,28 +222,65 @@ class MeetService:
         sort_desc: bool = False,
         group_by: str = "heat",
     ) -> str:
+        competition_title = self.repo.get_meta("competition_title") or "Итоговый протокол соревнований"
         blocks: list[str] = [
             "<style>@page { size: A4 portrait; margin: 12mm; } body { font-family: Arial, sans-serif; }"
             " h1, h2 { margin: 0 0 8px 0; } table { margin-bottom: 16px; font-size: 12px; border-collapse: collapse; }"
             " th, td { border: 1px solid #333; padding: 4px; }</style>",
-            "<h1>Итоговый протокол соревнований</h1>",
+            f"<h1>{competition_title}</h1>",
         ]
         for event in self.repo.list_events():
             swimmers = self.repo.list_swimmers(event.id)
             swimmers = self._filter_final_protocol_swimmers(swimmers)
             blocks.append(
-                self._build_protocol_html(
+                self._build_final_protocol_event_html(
                     event.name,
                     swimmers,
-                    grouped=grouped,
-                    with_title=True,
                     sort_by=sort_by,
                     sort_desc=sort_desc,
-                    group_by=group_by,
-                    compact=True,
                 )
             )
         return "\n".join(blocks)
+
+    def _build_final_protocol_event_html(
+        self,
+        title: str,
+        swimmers: list,
+        sort_by: str = "place",
+        sort_desc: bool = False,
+    ) -> str:
+        active = [s for s in swimmers if s.status != "DNS"]
+        ranked = sorted(active, key=lambda s: (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name))
+        places: dict[int, int] = {}
+        last_time_cs = None
+        for idx, swimmer in enumerate(ranked, start=1):
+            if swimmer.result_time_cs is None:
+                continue
+            if swimmer.result_time_cs != last_time_cs:
+                places[swimmer.id] = idx
+                last_time_cs = swimmer.result_time_cs
+                continue
+            places[swimmer.id] = places[ranked[idx - 2].id]
+
+        def sort_key(s):
+            if sort_by == "full_name":
+                return (s.full_name.lower(),)
+            return (places.get(s.id, 10**9), s.full_name.lower())
+
+        rows = [
+            "<tr>"
+            f"<td>{places.get(s.id, '')}</td>"
+            f"<td>{s.full_name}</td>"
+            "</tr>"
+            for s in sorted(swimmers, key=sort_key, reverse=sort_desc)
+        ]
+        return (
+            f"<h2>{title}</h2>"
+            "<table border='1' cellspacing='0' cellpadding='4' width='100%'>"
+            "<tr><th>Место</th><th>ФИО</th></tr>"
+            + "".join(rows)
+            + "</table>"
+        )
 
     def _filter_final_protocol_swimmers(self, swimmers: list) -> list:
         disallowed_marks = {"DNS", "DQ"}

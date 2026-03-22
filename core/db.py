@@ -50,6 +50,11 @@ CREATE TABLE IF NOT EXISTS secretaries (
     password_hint TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS meet_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
 """
 
 
@@ -146,6 +151,17 @@ class MeetRepository:
         self.conn.execute("DELETE FROM events")
         self.log("clear_all", "wipe imported data")
         self.conn.commit()
+
+    def set_meta(self, key: str, value: str) -> None:
+        self.conn.execute(
+            "INSERT INTO meet_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+        self.conn.commit()
+
+    def get_meta(self, key: str) -> str | None:
+        row = self.conn.execute("SELECT value FROM meet_meta WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else None
 
     def upsert_event(self, name: str, lanes_count: int = 8) -> int:
         self.conn.execute(
