@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QPageSize, QTextDocument
+from PySide6.QtGui import QFont, QPageSize, QTextDocument
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
@@ -34,6 +35,151 @@ from PySide6.QtWidgets import (
 from core.excel_importer import ExcelImportError
 from core.models import Secretary
 from core.service import MeetService
+
+
+UI_SETTINGS_ORG = "ProgramForSyte"
+UI_SETTINGS_APP = "SwimMeet"
+DEFAULT_FONT_FAMILY = "Arial"
+DEFAULT_FONT_SIZE = 10
+DEFAULT_THEME = "light"
+FONT_FAMILIES = ["Arial", "Times New Roman", "Verdana", "Tahoma", "Calibri", "Segoe UI"]
+THEME_LABELS = {
+    "light": "Светлая",
+    "dark": "Тёмная",
+}
+
+
+def load_ui_preferences() -> dict[str, str | int]:
+    settings = QSettings(UI_SETTINGS_ORG, UI_SETTINGS_APP)
+    theme = settings.value("ui/theme", DEFAULT_THEME, type=str)
+    if theme not in THEME_LABELS:
+        theme = DEFAULT_THEME
+    font_family = settings.value("ui/font_family", DEFAULT_FONT_FAMILY, type=str)
+    if font_family not in FONT_FAMILIES:
+        font_family = DEFAULT_FONT_FAMILY
+    font_size = settings.value("ui/font_size", DEFAULT_FONT_SIZE, type=int)
+    if font_size < 8 or font_size > 24:
+        font_size = DEFAULT_FONT_SIZE
+    return {
+        "theme": theme,
+        "font_family": font_family,
+        "font_size": font_size,
+    }
+
+
+def build_theme_stylesheet(theme: str) -> str:
+    if theme == "dark":
+        return """
+        QWidget {
+            background-color: #1e1e1e;
+            color: #f2f2f2;
+        }
+        QMainWindow, QDialog {
+            background-color: #1e1e1e;
+        }
+        QPushButton {
+            background-color: #2d2d30;
+            border: 1px solid #3f3f46;
+            padding: 6px 10px;
+            border-radius: 4px;
+        }
+        QPushButton:hover {
+            background-color: #3a3a3f;
+        }
+        QPushButton:pressed {
+            background-color: #252529;
+        }
+        QLineEdit, QTextEdit, QListWidget, QTableWidget, QComboBox, QSpinBox {
+            background-color: #252526;
+            color: #f2f2f2;
+            border: 1px solid #3f3f46;
+            selection-background-color: #2f80ed;
+            selection-color: #ffffff;
+        }
+        QHeaderView::section {
+            background-color: #2d2d30;
+            color: #f2f2f2;
+            border: 1px solid #3f3f46;
+            padding: 4px;
+        }
+        QTableWidget::item:selected {
+            background-color: #2f80ed;
+            color: #ffffff;
+        }
+        QTabWidget::pane {
+            border: 1px solid #3f3f46;
+        }
+        QTabBar::tab {
+            background-color: #2d2d30;
+            color: #f2f2f2;
+            padding: 6px 10px;
+            border: 1px solid #3f3f46;
+        }
+        QTabBar::tab:selected {
+            background-color: #3a3a3f;
+        }
+        """
+    return """
+    QWidget {
+        background-color: #f7f7f7;
+        color: #202020;
+    }
+    QMainWindow, QDialog {
+        background-color: #f7f7f7;
+    }
+    QPushButton {
+        background-color: #ffffff;
+        border: 1px solid #c8c8c8;
+        padding: 6px 10px;
+        border-radius: 4px;
+    }
+    QPushButton:hover {
+        background-color: #f0f6ff;
+    }
+    QPushButton:pressed {
+        background-color: #e5eefc;
+    }
+    QLineEdit, QTextEdit, QListWidget, QTableWidget, QComboBox, QSpinBox {
+        background-color: #ffffff;
+        color: #202020;
+        border: 1px solid #c8c8c8;
+        selection-background-color: #5b9dff;
+        selection-color: #000000;
+    }
+    QHeaderView::section {
+        background-color: #efefef;
+        color: #202020;
+        border: 1px solid #c8c8c8;
+        padding: 4px;
+    }
+    QTableWidget::item:selected {
+        background-color: #5b9dff;
+        color: #000000;
+    }
+    QTableWidget::item:selected:active {
+        background-color: #2f80ed;
+        color: #ffffff;
+    }
+    QTabWidget::pane {
+        border: 1px solid #c8c8c8;
+    }
+    QTabBar::tab {
+        background-color: #efefef;
+        color: #202020;
+        padding: 6px 10px;
+        border: 1px solid #c8c8c8;
+    }
+    QTabBar::tab:selected {
+        background-color: #ffffff;
+    }
+    """
+
+
+def apply_ui_preferences(app: QApplication) -> dict[str, str | int]:
+    preferences = load_ui_preferences()
+    app.setFont(QFont(str(preferences["font_family"]), int(preferences["font_size"])))
+    app.setStyleSheet(build_theme_stylesheet(str(preferences["theme"])))
+    return preferences
 
 
 class MainWindow(QMainWindow):
@@ -83,23 +229,13 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setStyleSheet(
-            """
-            QTableWidget::item:selected {
-                background-color: #5b9dff;
-                color: #000000;
-            }
-            QTableWidget::item:selected:active {
-                background-color: #2f80ed;
-                color: #ffffff;
-            }
-            """
-        )
 
         import_btn = QPushButton("Импорт Excel")
         import_btn.clicked.connect(self.import_excel)
         backup_btn = QPushButton("Бэкап БД")
         backup_btn.clicked.connect(self.make_backup)
+        settings_btn = QPushButton("Настройки")
+        settings_btn.clicked.connect(self.open_settings)
         mark_absent_btn = QPushButton("Не явился")
         mark_absent_btn.clicked.connect(self.mark_absent)
         restore_btn = QPushButton("Вернуть в заплывы")
@@ -124,6 +260,7 @@ class MainWindow(QMainWindow):
         left.addWidget(self.events_list)
         left.addWidget(import_btn)
         left.addWidget(backup_btn)
+        left.addWidget(settings_btn)
 
         right = QVBoxLayout()
         right.addWidget(secretary_label)
@@ -147,7 +284,34 @@ class MainWindow(QMainWindow):
         wrapper = QWidget(); wrapper.setLayout(root_layout)
         self.setCentralWidget(wrapper)
 
+        self.apply_ui_preferences()
         self.refresh_events()
+
+    def settings_store(self) -> QSettings:
+        return QSettings(UI_SETTINGS_ORG, UI_SETTINGS_APP)
+
+    def current_ui_preferences(self) -> dict[str, str | int]:
+        return load_ui_preferences()
+
+    def apply_ui_preferences(self) -> None:
+        app = QApplication.instance()
+        if app is None:
+            return
+        apply_ui_preferences(app)
+        self.table.resizeColumnsToContents()
+
+    def open_settings(self) -> None:
+        dialog = AppearanceSettingsDialog(self.current_ui_preferences(), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        selected = dialog.selected_preferences()
+        settings = self.settings_store()
+        settings.setValue("ui/theme", selected["theme"])
+        settings.setValue("ui/font_family", selected["font_family"])
+        settings.setValue("ui/font_size", selected["font_size"])
+        self.apply_ui_preferences()
+        QMessageBox.information(self, "Настройки", "Настройки интерфейса сохранены")
 
     def _file_debug_message(self, file_path: Path) -> str:
         exists = file_path.exists()
@@ -210,7 +374,7 @@ class MainWindow(QMainWindow):
         self.table.resizeColumnsToContents()
 
     def import_excel(self) -> None:
-        settings = QSettings("ProgramForSyte", "SwimMeet")
+        settings = self.settings_store()
         last_file = settings.value("last_opened_file", "", type=str)
         default_directory = str(Path(last_file).parent) if last_file else str(Path.home())
 
@@ -357,6 +521,53 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
 
+class AppearanceSettingsDialog(QDialog):
+    def __init__(self, preferences: dict[str, str | int], parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setWindowTitle("Настройки интерфейса")
+        self.resize(360, 180)
+
+        form = QFormLayout()
+
+        self.theme_combo = QComboBox()
+        for theme_code, theme_label in THEME_LABELS.items():
+            self.theme_combo.addItem(theme_label, theme_code)
+        self.theme_combo.setCurrentIndex(self.theme_combo.findData(preferences["theme"]))
+
+        self.font_combo = QComboBox()
+        for family in FONT_FAMILIES:
+            self.font_combo.addItem(family)
+        self.font_combo.setCurrentText(str(preferences["font_family"]))
+
+        self.font_size_spin = QSpinBox()
+        self.font_size_spin.setRange(8, 24)
+        self.font_size_spin.setValue(int(preferences["font_size"]))
+
+        form.addRow("Тема", self.theme_combo)
+        form.addRow("Шрифт", self.font_combo)
+        form.addRow("Размер шрифта", self.font_size_spin)
+
+        buttons = QHBoxLayout()
+        save_btn = QPushButton("Сохранить")
+        save_btn.clicked.connect(self.accept)
+        cancel_btn = QPushButton("Отмена")
+        cancel_btn.clicked.connect(self.reject)
+        buttons.addWidget(save_btn)
+        buttons.addWidget(cancel_btn)
+
+        layout = QVBoxLayout()
+        layout.addLayout(form)
+        layout.addLayout(buttons)
+        self.setLayout(layout)
+
+    def selected_preferences(self) -> dict[str, str | int]:
+        return {
+            "theme": str(self.theme_combo.currentData()),
+            "font_family": self.font_combo.currentText(),
+            "font_size": self.font_size_spin.value(),
+        }
+
+
 class SecretaryAuthDialog(QDialog):
     def __init__(self, service: MeetService, parent: QWidget | None = None):
         super().__init__(parent)
@@ -377,9 +588,8 @@ class SecretaryAuthDialog(QDialog):
         self.tabs.addTab(self._build_login_tab(), "Авторизация")
         self.tabs.addTab(self._build_register_tab(), "Регистрация")
         self.tabs.addTab(self._build_recovery_tab(), "Забыл пароль")
-        layout.addWidget(self.tabs)
-
         self.setLayout(layout)
+        layout.addWidget(self.tabs)
 
     def _build_login_tab(self) -> QWidget:
         tab = QWidget()
@@ -690,6 +900,7 @@ class ProtocolDialog(QDialog):
 
 def run_app() -> None:
     app = QApplication([])
+    apply_ui_preferences(app)
     root = Path(__file__).resolve().parents[1]
     service = MeetService(root)
     auth_dialog = SecretaryAuthDialog(service)
