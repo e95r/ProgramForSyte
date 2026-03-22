@@ -101,10 +101,26 @@ class MeetService:
 
         imported = import_excel(excel_path)
         for event_name, swimmers in imported.items():
-            event_id = self.repo.upsert_event(event_name)
-            swimmers = self._normalize_imported_start_protocol(swimmers)
+            lanes_count = self._infer_imported_lanes_count(swimmers)
+            event_id = self.repo.upsert_event(event_name, lanes_count=lanes_count)
+            swimmers = self._normalize_imported_start_protocol(swimmers, lanes_count=lanes_count)
             self.repo.add_swimmers(event_id, swimmers)
         self.repo.log("import_excel", str(excel_path))
+
+    def _infer_imported_lanes_count(self, swimmers: list[dict], default: int = 8) -> int:
+        lanes = [int(lane) for lane in (s.get("lane") for s in swimmers) if isinstance(lane, int) and lane > 0]
+        if lanes:
+            return max(lanes)
+
+        heats: dict[int, int] = {}
+        for swimmer in swimmers:
+            heat = swimmer.get("heat")
+            if isinstance(heat, int) and heat > 0:
+                heats[heat] = heats.get(heat, 0) + 1
+        if heats:
+            return max(heats.values())
+
+        return default
 
     def _normalize_imported_start_protocol(self, swimmers: list[dict], lanes_count: int = 8) -> list[dict]:
         active = [dict(s) for s in swimmers if s.get("status") != "DNS"]
