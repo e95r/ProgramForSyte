@@ -58,3 +58,31 @@ def test_import_excel_parses_grouped_heats_from_protocol_blocks(tmp_path: Path):
         ("Кузнецов Ольга", 2, 2),
     ]
     assert data["100 — Вольный стиль девочки 2010-2012"][0]["birth_year"] == 2012
+
+
+def test_import_excel_uses_relay_title_instead_of_protocol_sheet_name(tmp_path: Path):
+    file_path = tmp_path / "relay-startlist.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Протокол"
+    ws.append(["4X50 — Вольный стиль все"])
+    ws.append(["Заплыв", "Дорожка", "Ф. И.", "Год рождения", "Команда", "Заявочное время"])
+    ws.append([1, 1, "Белова Екатерина", 2010, "Команда для теста", "10.13.84"])
+    ws.append([None, 2, "Кузнецова Ольга", 2010, "Команда для теста", "3.54.10"])
+    ws.append([None, 3, "Жуков Илья", 2007, "Команда для теста", "1.53.15"])
+    ws.append([None, 4, "Кузнецов Юрий", 2009, "Команда для теста", "3.45.43"])
+    ws.append([2, 1, "Андреева Алина", 2000, "Команда для теста", "1.32.85"])
+    ws.append([None, 2, "Жуков Максим", 2006, "Команда для теста", "0.54.34"])
+    wb.save(file_path)
+
+    data = import_excel(file_path)
+
+    assert list(data) == ["4X50 — Вольный стиль все"]
+    assert [(s["full_name"], s["heat"], s["lane"]) for s in data["4X50 — Вольный стиль все"]] == [
+        ("Белова Екатерина", 1, 1),
+        ("Кузнецова Ольга", 1, 2),
+        ("Жуков Илья", 1, 3),
+        ("Кузнецов Юрий", 1, 4),
+        ("Андреева Алина", 2, 1),
+        ("Жуков Максим", 2, 2),
+    ]
