@@ -204,12 +204,30 @@ def test_final_protocol_compact_columns(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
         event_id = service.repo.upsert_event("200m")
-        service.repo.add_swimmers(event_id, [{"full_name": "C", "heat": 1, "lane": 4, "result_mark": "OK"}])
+        service.repo.add_swimmers(event_id, [{"full_name": "C", "heat": 1, "lane": 4, "seed_time_raw": "00:40:00", "result_mark": "OK"}])
 
         html = service.build_final_protocol(grouped=True, sort_by="heat")
         assert "Заплыв/дорожка" not in html
         assert "Отм." not in html
+        assert "Заявка" not in html
+        assert "Заплыв 1" not in html
+        assert "<th>Место</th>" in html
         assert "<th>ФИО</th>" in html
+    finally:
+        service.close()
+
+
+def test_final_protocol_uses_imported_file_stem_as_title(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        source = tmp_path / "Весенний_кубок-2026.xlsx"
+        source.write_bytes(b"placeholder")
+        service.repo.set_meta("competition_title", service._derive_competition_title(source))
+        event_id = service.repo.upsert_event("50m")
+        service.repo.add_swimmers(event_id, [{"full_name": "A"}])
+
+        html = service.build_final_protocol()
+        assert "<h1>Весенний кубок 2026</h1>" in html
     finally:
         service.close()
 
@@ -247,14 +265,14 @@ def test_final_protocol_tie_places_skip_next_place(tmp_path: Path):
         )
 
         html = service.build_final_protocol(grouped=False, sort_by="place")
-        assert html.index("<td>A</td>") < html.index("<td>1</td>")
+        assert html.index("<td>1</td><td>A</td>") != -1
         assert html.count("<td>2</td>") == 2
-        assert html.index("<td>D</td>") < html.index("<td>4</td>")
+        assert html.index("<td>4</td><td>D</td>") != -1
     finally:
         service.close()
 
 
-def test_final_protocol_grouped_by_team(tmp_path: Path):
+def test_final_protocol_ignores_grouping_and_stays_flat(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
         event_id = service.repo.upsert_event("100m")
@@ -268,8 +286,10 @@ def test_final_protocol_grouped_by_team(tmp_path: Path):
         )
 
         html = service.build_final_protocol(grouped=True, group_by="team")
-        assert "<b>Dolphins</b>" in html
-        assert "<b>Sharks</b>" in html
-        assert "<b>Без команды</b>" in html
+        assert "<b>Dolphins</b>" not in html
+        assert "<b>Sharks</b>" not in html
+        assert "<td>A</td>" in html
+        assert "<td>B</td>" in html
+        assert "<td>C</td>" in html
     finally:
         service.close()
