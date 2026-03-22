@@ -37,6 +37,28 @@ from core.service import MeetService
 
 
 class MainWindow(QMainWindow):
+    @staticmethod
+    def _apply_heat_spans(table: QTableWidget, rows: list[tuple[int | None, int]]) -> None:
+        if table.rowCount() == 0:
+            return
+        table.clearSpans()
+        start_row = 0
+        while start_row < len(rows):
+            heat, _lane = rows[start_row]
+            end_row = start_row + 1
+            while end_row < len(rows) and rows[end_row][0] == heat:
+                end_row += 1
+            span = end_row - start_row
+            heat_item = table.item(start_row, 0)
+            if heat_item is None:
+                heat_item = QTableWidgetItem(str(heat or "-"))
+                table.setItem(start_row, 0, heat_item)
+            heat_item.setText(str(heat or "-"))
+            heat_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if span > 1:
+                table.setSpan(start_row, 0, span, 1)
+            start_row = end_row
+
     def __init__(self, service: MeetService, root: Path, current_secretary: Secretary):
         super().__init__()
         self.service = service
@@ -55,8 +77,8 @@ class MainWindow(QMainWindow):
         self.full_reseed = QCheckBox("Полный пересев")
         self.full_reseed.setToolTip("Если включено — полностью пересчитать заплывы по заявочному времени")
 
-        self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["ФИО", "Год", "Команда", "Время", "Заплыв", "Статус", "Результат"])
+        self.table = QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels(["Заплыв", "Дорожка", "ФИО", "Год", "Команда", "Время", "Статус", "Результат"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
@@ -160,24 +182,31 @@ class MainWindow(QMainWindow):
             self.table.setRowCount(0)
             return
         swimmers = self.service.repo.list_swimmers(event_id, self.search_input.text())
+        self.table.clearSpans()
         self.table.setRowCount(len(swimmers))
+        heat_rows: list[tuple[int | None, int]] = []
         for row_idx, s in enumerate(swimmers):
             values = [
+                str(s.heat or "-"),
+                str(s.lane or "-"),
                 s.full_name,
                 str(s.birth_year or ""),
                 s.team or "",
                 s.seed_time_raw or "",
-                f"{s.heat or '-'} / {s.lane or '-'}",
                 self._status_label(s.status),
                 s.result_time_raw or "",
             ]
             for col_idx, val in enumerate(values):
                 cell = QTableWidgetItem(val)
-                if col_idx == 0:
+                if col_idx == 2:
                     cell.setData(Qt.ItemDataRole.UserRole, s.id)
+                if col_idx in (0, 1):
+                    cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 if s.status == "DNS":
                     cell.setForeground(Qt.GlobalColor.darkGray)
                 self.table.setItem(row_idx, col_idx, cell)
+            heat_rows.append((s.heat, s.lane or 0))
+        self._apply_heat_spans(self.table, heat_rows)
         self.table.resizeColumnsToContents()
 
     def import_excel(self) -> None:
@@ -213,7 +242,7 @@ class MainWindow(QMainWindow):
         selected = self.table.selectionModel().selectedRows()
         ids: list[int] = []
         for idx in selected:
-            item = self.table.item(idx.row(), 0)
+            item = self.table.item(idx.row(), 2)
             if item is None:
                 continue
             swimmer_id = item.data(Qt.ItemDataRole.UserRole)
@@ -458,12 +487,12 @@ class ResultsEntryDialog(QDialog):
         self.setWindowTitle("Ввод результатов заплыва")
         self.resize(900, 600)
 
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["Заплыв", "ФИО", "Команда", "Заявка", "Результат", "Отметка"])
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["Заплыв", "Дорожка", "ФИО", "Команда", "Заявка", "Результат", "Отметка"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setItemDelegateForColumn(4, TimeMaskDelegate(self.table))
-        self.table.setItemDelegateForColumn(5, MarkDelegate(self.table))
+        self.table.setItemDelegateForColumn(5, TimeMaskDelegate(self.table))
+        self.table.setItemDelegateForColumn(6, MarkDelegate(self.table))
 
         mark_hint = QLabel("Отметка: используйте коды судейства (например, DNS, DQ, EXH), если нужен комментарий к результату.")
         mark_hint.setWordWrap(True)
@@ -480,24 +509,31 @@ class ResultsEntryDialog(QDialog):
 
     def load_rows(self) -> None:
         swimmers = self.service.repo.list_swimmers(self.event_id)
+        self.table.clearSpans()
         self.table.setRowCount(len(swimmers))
+        heat_rows: list[tuple[int | None, int]] = []
         for row_idx, s in enumerate(swimmers):
             values = [
-                f"{s.heat or '-'} / {s.lane or '-'}",
+                str(s.heat or "-"),
+                str(s.lane or "-"),
                 s.full_name,
                 s.team or "",
                 s.seed_time_raw or "",
             ]
             for col_idx, val in enumerate(values):
                 item = QTableWidgetItem(val)
-                if col_idx == 1:
+                if col_idx == 2:
                     item.setData(Qt.ItemDataRole.UserRole, s.id)
-                if col_idx < 4:
+                if col_idx < 5:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if col_idx in (0, 1):
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(row_idx, col_idx, item)
 
-            self.table.setItem(row_idx, 4, QTableWidgetItem(s.result_time_raw or ""))
-            self.table.setItem(row_idx, 5, QTableWidgetItem(s.result_mark or ""))
+            self.table.setItem(row_idx, 5, QTableWidgetItem(s.result_time_raw or ""))
+            self.table.setItem(row_idx, 6, QTableWidgetItem(s.result_mark or ""))
+            heat_rows.append((s.heat, s.lane or 0))
+        MainWindow._apply_heat_spans(self.table, heat_rows)
         self.table.resizeColumnsToContents()
 
     def save_results(self) -> None:
@@ -505,9 +541,9 @@ class ResultsEntryDialog(QDialog):
         for row in range(self.table.rowCount()):
             payload.append(
                 {
-                    "swimmer_id": str(self.table.item(row, 1).data(Qt.ItemDataRole.UserRole)),
-                    "result_time_raw": self.table.item(row, 4).text() if self.table.item(row, 4) else "",
-                    "result_mark": self.table.item(row, 5).text() if self.table.item(row, 5) else "",
+                    "swimmer_id": str(self.table.item(row, 2).data(Qt.ItemDataRole.UserRole)),
+                    "result_time_raw": self.table.item(row, 5).text() if self.table.item(row, 5) else "",
+                    "result_mark": self.table.item(row, 6).text() if self.table.item(row, 6) else "",
                 }
             )
         self.service.save_event_results(self.event_id, payload)
