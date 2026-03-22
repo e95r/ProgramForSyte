@@ -79,6 +79,52 @@ def test_import_startlist_keeps_grouped_protocol_heats_and_lanes(tmp_path: Path)
     finally:
         service.close()
 
+
+def test_import_startlist_rebuilds_combined_protocol_using_inferred_lane_count(tmp_path: Path):
+    from openpyxl import Workbook
+
+    source = tmp_path / "combined-six-lanes.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "100 — Брасс все"
+    ws.append(["ФИО", "Заявочное время", "Заплыв/дорожка"])
+    ws.append(["Жуков Илья", "20.31.20", "1/1"])
+    ws.append(["Кузнецов Юрий", "5.16.05", "1/2"])
+    ws.append(["Андреев Александр", "1.38.53", "1/3"])
+    ws.append(["Белова Екатерина", "4.15.32", "1/4"])
+    ws.append(["Козлов Андрей", "6.12.06", "1/5"])
+    ws.append(["Андреева Алина", "1.35.11", "2/1"])
+    ws.append(["Кузнецова Ольга", "1.06.42", "2/2"])
+    ws.append(["Васильев Григорий", "1.01.35", "2/3"])
+    ws.append(["Андреева Дарья", "1.01.53", "2/4"])
+    ws.append(["Гаврилова Вероника", "1.34.26", "2/5"])
+    ws.append(["Жуков Максим", "1.36.02", "2/6"])
+    wb.save(source)
+
+    service = MeetService(tmp_path)
+    try:
+        service.import_startlist(source)
+        event = service.repo.list_events()[0]
+        swimmers = service.repo.list_swimmers(event.id)
+
+        assert event.lanes_count == 6
+        assert [(s.full_name, s.heat, s.lane) for s in swimmers] == [
+            ("Васильев Григорий", 1, 1),
+            ("Андреева Дарья", 1, 2),
+            ("Кузнецова Ольга", 1, 3),
+            ("Гаврилова Вероника", 1, 4),
+            ("Андреева Алина", 1, 5),
+            ("Жуков Максим", 1, 6),
+            ("Андреев Александр", 2, 1),
+            ("Белова Екатерина", 2, 2),
+            ("Кузнецов Юрий", 2, 3),
+            ("Козлов Андрей", 2, 4),
+            ("Жуков Илья", 2, 5),
+        ]
+    finally:
+        service.close()
+
+
 def test_event_protocol_sort_by_team(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
