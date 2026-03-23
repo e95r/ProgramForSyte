@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from openpyxl import load_workbook
+
 from core.service import MeetService
 
 
@@ -306,5 +308,53 @@ def test_final_protocol_tie_places_skip_next_place(tmp_path: Path):
         assert "<td class='place'>1</td>" in html
         assert html.count("<td class='place'>2</td>") == 2
         assert "<td class='place'>4</td>" in html
+    finally:
+        service.close()
+
+
+def test_final_protocol_wraps_content_to_a4_width_and_uses_fixed_table_columns(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("50m")
+        service.repo.add_swimmers(event_id, [{"full_name": "A", "result_time_raw": "00:30:00", "result_time_cs": 3000}])
+
+        html = service.build_final_protocol(grouped=False)
+
+        assert ".page { width: 186mm; max-width: 186mm; margin: 0 auto; box-sizing: border-box; }" in html
+        assert "<table class='protocol-table'><colgroup><col class='col-1'><col class='col-2'><col class='col-3'><col class='col-4'><col class='col-5'><col class='col-6'></colgroup>" in html
+    finally:
+        service.close()
+
+
+def test_final_protocol_can_be_exported_to_excel_with_a4_setup(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        service.repo.set_meta("competition_title", 'Открытый турнир по плаванию «АКВАДОН»')
+        service.repo.set_meta("competition_date", "25.04.2026")
+        service.repo.set_meta("competition_place", "Донской, Тульская область")
+        event_id = service.repo.upsert_event("100 брасс, мужчины все")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "Андреев Андрей", "birth_year": 2008, "team": "Команда 1", "result_time_raw": "01:01:01", "result_time_cs": 6101},
+                {"full_name": "Иванов Иван", "birth_year": 2010, "team": "Команда 2", "result_time_raw": "01:02:02", "result_time_cs": 6202},
+            ],
+        )
+
+        target = tmp_path / "final-protocol.xlsx"
+        saved = service.export_final_protocol_excel(target, grouped=False)
+
+        assert saved == target
+        assert target.exists()
+        wb = load_workbook(target)
+        ws = wb.active
+        assert str(ws.page_setup.paperSize) == ws.PAPERSIZE_A4
+        assert ws.page_setup.fitToWidth == 1
+        assert ws["A1"].value == "Итоговый протокол Открытый турнир по плаванию «АКВАДОН»"
+        assert ws["A5"].value == "100 БРАСС, МУЖЧИНЫ"
+        assert ws["B7"].value == "Андреев Андрей"
+        assert ws["F8"].value == 2
+        assert ws.column_dimensions["A"].width == 10
+        assert ws.column_dimensions["F"].width == 12
     finally:
         service.close()
