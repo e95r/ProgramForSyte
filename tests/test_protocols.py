@@ -3,34 +3,31 @@ from pathlib import Path
 from core.service import MeetService
 
 
-def test_event_protocol_grouped_by_heats(tmp_path: Path):
+def test_event_protocol_uses_start_heats_and_lanes(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
-        event_id = service.repo.upsert_event("50m freestyle")
+        service.repo.set_meta("competition_title", 'Открытый турнир по плаванию «АКВАДОН»')
+        service.repo.set_meta("competition_date", "25.04.2026")
+        service.repo.set_meta("competition_place", "Донской, Тульская область")
+        event_id = service.repo.upsert_event("100 брасс, мужчины все")
         service.repo.add_swimmers(
             event_id,
             [
-                {"full_name": "A", "heat": 2, "lane": 1, "seed_time_raw": "00:35:00", "seed_time_cs": 3500},
-                {"full_name": "B", "heat": 1, "lane": 2, "seed_time_raw": "00:33:00", "seed_time_cs": 3300},
-            ],
-        )
-        swimmers = service.repo.list_swimmers(event_id)
-        service.save_event_results(
-            event_id,
-            [
-                {"swimmer_id": str(swimmers[0].id), "result_time_raw": "00:34:00", "result_mark": ""},
-                {"swimmer_id": str(swimmers[1].id), "result_time_raw": "00:32:50", "result_mark": ""},
+                {"full_name": "B", "heat": 2, "lane": 1, "birth_year": 2013, "team": "Sharks", "seed_time_raw": "00:35:00", "seed_time_cs": 3500},
+                {"full_name": "A", "heat": 1, "lane": 2, "birth_year": 2012, "team": "Dolphins", "seed_time_raw": "00:33:00", "seed_time_cs": 3300},
             ],
         )
 
         html = service.build_event_protocol(event_id, grouped=True)
-        assert "Заплыв 1" in html
-        assert "Заплыв 2" in html
-        assert "1</td>" in html
+        assert "Открытый турнир по плаванию «АКВАДОН»" in html
+        assert "25.04.2026" in html
+        assert "Донской, Тульская область" in html
+        assert "100 БРАСС ЮНОШИ, ВСЕ ВОЗРАСТА" in html
+        assert "<td class='heat'>1</td>" in html
+        assert "<td class='lane'>2</td>" in html
+        assert "<td class='heat'>2</td>" in html
     finally:
         service.close()
-
-
 
 
 def test_import_startlist_keeps_combined_heat_and_lane_from_excel(tmp_path: Path):
@@ -125,55 +122,23 @@ def test_import_startlist_keeps_combined_protocol_and_infers_lane_count(tmp_path
         service.close()
 
 
-def test_event_protocol_sort_by_team(tmp_path: Path):
+def test_final_protocol_contains_all_events_and_metadata(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
-        event_id = service.repo.upsert_event("50m freestyle")
-        service.repo.add_swimmers(
-            event_id,
-            [
-                {"full_name": "B", "team": "Sharks"},
-                {"full_name": "A", "team": "Dolphins"},
-            ],
-        )
-
-        html = service.build_event_protocol(event_id, grouped=False, sort_by="team")
-        assert html.index("<td>A</td>") < html.index("<td>B</td>")
-    finally:
-        service.close()
-
-
-def test_event_protocol_grouped_by_status(tmp_path: Path):
-    service = MeetService(tmp_path)
-    try:
-        event_id = service.repo.upsert_event("100m freestyle")
-        service.repo.add_swimmers(
-            event_id,
-            [
-                {"full_name": "A", "status": "DNS"},
-                {"full_name": "B", "status": "OK"},
-            ],
-        )
-
-        html = service.build_event_protocol(event_id, grouped=True, group_by="status")
-        assert "<b>DNS</b>" in html
-        assert "<b>OK</b>" in html
-    finally:
-        service.close()
-
-
-def test_final_protocol_contains_all_events(tmp_path: Path):
-    service = MeetService(tmp_path)
-    try:
+        service.repo.set_meta("competition_title", 'открытого турнира по плаванию "АКВАДОН"')
+        service.repo.set_meta("competition_date", "20 декабря 2025")
+        service.repo.set_meta("competition_place", "Тульская обл. г.Донской МБУ ДСК")
         e1 = service.repo.upsert_event("50m")
         e2 = service.repo.upsert_event("100m")
         service.repo.add_swimmers(e1, [{"full_name": "A", "heat": 1, "lane": 1}])
         service.repo.add_swimmers(e2, [{"full_name": "B", "heat": 1, "lane": 2}])
 
         html = service.build_final_protocol(grouped=True)
-        assert "50m" in html
-        assert "100m" in html
-        assert "Итоговый протокол соревнований" in html
+        assert "Итоговый протокол открытого турнира по плаванию &quot;АКВАДОН&quot;" in html
+        assert "20 декабря 2025" in html
+        assert "Тульская обл. г.Донской МБУ ДСК" in html
+        assert "50M ВСЕ, ВСЕ ВОЗРАСТА" in html
+        assert "100M ВСЕ, ВСЕ ВОЗРАСТА" in html
         assert "size: A4" in html
     finally:
         service.close()
@@ -193,41 +158,38 @@ def test_final_protocol_excludes_dns_and_dq(tmp_path: Path):
         )
 
         html = service.build_final_protocol(grouped=False)
-        assert "<td>C</td>" in html
-        assert "<td>A</td>" not in html
-        assert "<td>B</td>" not in html
+        assert ">C</td>" in html
+        assert ">A</td>" not in html
+        assert ">B</td>" not in html
     finally:
         service.close()
 
 
-def test_final_protocol_compact_columns(tmp_path: Path):
+def test_final_protocol_splits_by_age_groups_and_colors_by_gender(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
-        event_id = service.repo.upsert_event("200m")
-        service.repo.add_swimmers(event_id, [{"full_name": "C", "heat": 1, "lane": 4, "seed_time_raw": "00:40:00", "result_mark": "OK"}])
-
-        html = service.build_final_protocol(grouped=True, sort_by="heat")
-        assert "Заплыв/дорожка" not in html
-        assert "Отм." not in html
-        assert "Заявка" not in html
-        assert "Заплыв 1" not in html
-        assert "<th>Место</th>" in html
-        assert "<th>ФИО</th>" in html
-    finally:
-        service.close()
-
-
-def test_final_protocol_uses_imported_file_stem_as_title(tmp_path: Path):
-    service = MeetService(tmp_path)
-    try:
-        source = tmp_path / "Весенний_кубок-2026.xlsx"
-        source.write_bytes(b"placeholder")
-        service.repo.set_meta("competition_title", service._derive_competition_title(source))
-        event_id = service.repo.upsert_event("50m")
-        service.repo.add_swimmers(event_id, [{"full_name": "A"}])
+        service.repo.set_meta(
+            "age_groups",
+            '[{"index": 1, "label": "2010 и старше", "min_year": null, "max_year": 2010}, '
+            '{"index": 2, "label": "2011-2012", "min_year": 2011, "max_year": 2012}, '
+            '{"index": 3, "label": "2013-2014", "min_year": 2013, "max_year": 2014}]',
+        )
+        event_id = service.repo.upsert_event("100 комплексное плавание, мужчины все")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "Old", "birth_year": 2010, "team": "A", "result_time_raw": "01:02:29", "result_time_cs": 6229},
+                {"full_name": "Mid", "birth_year": 2011, "team": "B", "result_time_raw": "01:03:40", "result_time_cs": 6340},
+                {"full_name": "Young", "birth_year": 2014, "team": "C", "result_time_raw": "01:07:50", "result_time_cs": 6750},
+            ],
+        )
 
         html = service.build_final_protocol()
-        assert "<h1>Весенний кубок 2026</h1>" in html
+        assert "100 КОМПЛЕКСНОЕ ПЛАВАНИЕ ЮНОШИ, 2010 И СТАРШЕ" in html
+        assert "100 КОМПЛЕКСНОЕ ПЛАВАНИЕ ЮНОШИ, 2011-2012" in html
+        assert "100 КОМПЛЕКСНОЕ ПЛАВАНИЕ ЮНОШИ, 2013-2014" in html
+        assert "category-title boys" in html
+        assert html.count("<table class='protocol-table'>") == 3
     finally:
         service.close()
 
@@ -245,7 +207,7 @@ def test_final_protocol_place_sort_desc(tmp_path: Path):
         )
 
         html = service.build_final_protocol(grouped=False, sort_by="place", sort_desc=True)
-        assert html.index("<td>Slow</td>") < html.index("<td>Fast</td>")
+        assert html.index("Slow") < html.index("Fast")
     finally:
         service.close()
 
@@ -265,31 +227,8 @@ def test_final_protocol_tie_places_skip_next_place(tmp_path: Path):
         )
 
         html = service.build_final_protocol(grouped=False, sort_by="place")
-        assert html.index("<td>1</td><td>A</td>") != -1
-        assert html.count("<td>2</td>") == 2
-        assert html.index("<td>4</td><td>D</td>") != -1
-    finally:
-        service.close()
-
-
-def test_final_protocol_ignores_grouping_and_stays_flat(tmp_path: Path):
-    service = MeetService(tmp_path)
-    try:
-        event_id = service.repo.upsert_event("100m")
-        service.repo.add_swimmers(
-            event_id,
-            [
-                {"full_name": "A", "team": "Sharks"},
-                {"full_name": "B", "team": "Dolphins"},
-                {"full_name": "C", "team": None},
-            ],
-        )
-
-        html = service.build_final_protocol(grouped=True, group_by="team")
-        assert "<b>Dolphins</b>" not in html
-        assert "<b>Sharks</b>" not in html
-        assert "<td>A</td>" in html
-        assert "<td>B</td>" in html
-        assert "<td>C</td>" in html
+        assert "<td class='place'>1</td>" in html
+        assert html.count("<td class='place'>2</td>") == 2
+        assert "<td class='place'>4</td>" in html
     finally:
         service.close()

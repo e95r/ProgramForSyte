@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import re
-from zipfile import BadZipFile
 from pathlib import Path
+from zipfile import BadZipFile
 
 from core.time_utils import parse_seed_time_to_cs
 
@@ -17,9 +17,11 @@ HEADER_ALIASES = {
 }
 
 EVENT_TITLE_RE = re.compile(
-    r"^\s*(?:\d+\s*[xх×]\s*\d+|\d+)(?:\s*[-–—]\s*|\s*(?:м|метр|метров)\b\s*).+$",
+    r"^\s*(?:\d+\s*[xх×]\s*\d+|\d+)(?:\s*[-–—,:]\s*|\s*(?:м|метр|метров)\b\s*).+$",
     re.IGNORECASE,
 )
+AGE_GROUP_LINE_RE = re.compile(r"^\s*Группа\s*(\d+)\s*[—\-:]\s*(.+?)\s*$", re.IGNORECASE)
+YEAR_RE = re.compile(r"(19\d{2}|20\d{2})")
 
 
 class ExcelImportError(ValueError):
@@ -167,6 +169,94 @@ def _parse_swimmers(rows: list[tuple[object, ...]], start_idx: int, cols: dict[s
     return swimmers
 
 
+def _validate_input_file(file_path: Path) -> None:
+    if not file_path.exists():
+        raise ExcelImportError("Выбранный файл не существует.")
+    size = file_path.stat().st_size
+    suffix = file_path.suffix.lower()
+    if size == 0:
+        raise ExcelImportError("Выбранный файл пустой (0 байт). Выберите корректный Excel-файл.")
+    if suffix not in {".xlsx", ".xlsm"}:
+        raise ExcelImportError("Поддерживаются только файлы .xlsx и .xlsm.")
+
+
+def _parse_age_label_to_bounds(label: str) -> dict[str, int | str | None]:
+    text = " ".join(label.split())
+    years = [int(value) for value in YEAR_RE.findall(text)]
+    min_year = None
+    max_year = None
+    lowered = text.lower()
+    if "и старше" in lowered and years:
+        max_year = years[0]
+    elif "и младше" in lowered and years:
+        min_year = years[0]
+    elif len(years) >= 2:
+        min_year = min(years[0], years[1])
+        max_year = max(years[0], years[1])
+    elif len(years) == 1:
+        min_year = years[0]
+        max_year = years[0]
+    return {"label": text, "min_year": min_year, "max_year": max_year}
+
+
+def extract_meet_metadata(path: Path) -> dict[str, object]:
+    _validate_input_file(path)
+    if path.suffix.lower() == ".xls":
+        raise ExcelImportError("Формат .xls не поддерживается. Сохраните файл как .xlsx и попробуйте снова.")
+    try:
+        from openpyxl import load_workbook
+        from openpyxl.utils.exceptions import InvalidFileException
+    except ModuleNotFoundError as exc:
+        raise ExcelImportError("Не установлен пакет openpyxl. Установите зависимости приложения.") from exc
+
+    try:
+        wb = load_workbook(path, data_only=True)
+    except (BadZipFile, InvalidFileException) as exc:
+        raise ExcelImportError(
+            "Не удалось открыть Excel-файл. Проверьте, что это корректный .xlsx/.xlsm файл."
+        ) from exc
+
+    meta: dict[str, object] = {
+        "competition_title": "",
+        "competition_date": "",
+        "competition_place": "",
+        "age_groups": [],
+        "relay_age_groups": [],
+    }
+    current_bucket: str | None = None
+    for ws in wb.worksheets:
+        for row in ws.iter_rows(values_only=True):
+            values = _row_non_empty_values(row)
+            if not values:
+                continue
+            text = str(values[0]).strip() if len(values) == 1 else " ".join(str(v).strip() for v in values if str(v).strip())
+            lowered = text.lower()
+            if lowered.startswith("соревнование:"):
+                meta["competition_title"] = text.split(":", 1)[1].strip()
+                continue
+            if lowered.startswith("дата проведения:"):
+                meta["competition_date"] = text.split(":", 1)[1].strip()
+                continue
+            if lowered.startswith("место проведения:"):
+                meta["competition_place"] = text.split(":", 1)[1].strip()
+                continue
+            if lowered.startswith("возрастные группы"):
+                current_bucket = "age_groups"
+                continue
+            if lowered.startswith("эстафет"):
+                current_bucket = "relay_age_groups"
+                continue
+            match = AGE_GROUP_LINE_RE.match(text)
+            if current_bucket and match:
+                parsed = _parse_age_label_to_bounds(match.group(2))
+                parsed["index"] = int(match.group(1))
+                meta[current_bucket].append(parsed)
+                continue
+            if current_bucket and _looks_like_event_title(row):
+                current_bucket = None
+    return meta
+
+
 def import_excel(path: Path) -> dict[str, list[dict]]:
     def _file_debug_message(file_path: Path) -> str:
         exists = file_path.exists()
@@ -178,16 +268,6 @@ def import_excel(path: Path) -> dict[str, list[dict]]:
             f"Size: {size}\n"
             f"Suffix: {suffix}"
         )
-
-    def _validate_input_file(file_path: Path) -> None:
-        if not file_path.exists():
-            raise ExcelImportError("Выбранный файл не существует.")
-        size = file_path.stat().st_size
-        suffix = file_path.suffix.lower()
-        if size == 0:
-            raise ExcelImportError("Выбранный файл пустой (0 байт). Выберите корректный Excel-файл.")
-        if suffix not in {".xlsx", ".xlsm"}:
-            raise ExcelImportError("Поддерживаются только файлы .xlsx и .xlsm.")
 
     initial_debug_message = _file_debug_message(path)
     print(initial_debug_message)

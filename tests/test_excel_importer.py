@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from openpyxl import Workbook
 
-from core.excel_importer import ExcelImportError, import_excel
+from core.excel_importer import ExcelImportError, extract_meet_metadata, import_excel
 
 
 def test_import_excel_rejects_legacy_xls(tmp_path: Path):
@@ -85,4 +85,40 @@ def test_import_excel_uses_relay_title_instead_of_protocol_sheet_name(tmp_path: 
         ("Кузнецов Юрий", 1, 4),
         ("Андреева Алина", 2, 1),
         ("Жуков Максим", 2, 2),
+    ]
+
+
+def test_extract_meet_metadata_reads_competition_details_and_age_groups(tmp_path: Path):
+    file_path = tmp_path / "meta-startlist.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Старт"
+    ws.append(["Открытый турнир по плаванию «АКВАДОН»"])
+    ws.append(["Соревнование: Открытый турнир по плаванию «АКВАДОН»"])
+    ws.append(["Дата проведения: 25.04.2026"])
+    ws.append(["Место проведения: Донской, Тульская область, г. Донской, мкр. Центральный"])
+    ws.append([])
+    ws.append(["Возрастные группы:"])
+    ws.append(["Группа 1 — 2010 и старше"])
+    ws.append(["Группа 2 — 2011-2012"])
+    ws.append(["Группа 3 — 2013-2014"])
+    ws.append(["Группа 4 — 2015 и младше"])
+    ws.append([])
+    ws.append(["Эстафетное плавание:"])
+    ws.append(["Группа 1 — 2010 и старше"])
+    wb.save(file_path)
+
+    meta = extract_meet_metadata(file_path)
+
+    assert meta["competition_title"] == "Открытый турнир по плаванию «АКВАДОН»"
+    assert meta["competition_date"] == "25.04.2026"
+    assert meta["competition_place"].startswith("Донской")
+    assert meta["age_groups"] == [
+        {"index": 1, "label": "2010 и старше", "min_year": None, "max_year": 2010},
+        {"index": 2, "label": "2011-2012", "min_year": 2011, "max_year": 2012},
+        {"index": 3, "label": "2013-2014", "min_year": 2013, "max_year": 2014},
+        {"index": 4, "label": "2015 и младше", "min_year": 2015, "max_year": None},
+    ]
+    assert meta["relay_age_groups"] == [
+        {"index": 1, "label": "2010 и старше", "min_year": None, "max_year": 2010}
     ]

@@ -1,14 +1,24 @@
 from __future__ import annotations
 
 import hashlib
+import html
+import json
+import re
 import secrets
 import shutil
 from datetime import datetime
 from pathlib import Path
+
 from core.db import MeetRepository
 from core.models import Secretary
 from core.reseeding import compress_lanes_within_heats, full_reseed
 from core.time_utils import parse_seed_time_to_cs
+
+
+TITLE_GENDER_SUFFIX_RE = re.compile(
+    r"\s*,\s*(женщины|девушки|девочки|мужчины|юноши|мальчики)\s+все\s*$",
+    re.IGNORECASE,
+)
 
 
 class MeetService:
@@ -97,10 +107,15 @@ class MeetService:
 
     def import_startlist(self, excel_path: Path) -> None:
         self.repo.clear_all()
-        from core.excel_importer import import_excel
+        from core.excel_importer import extract_meet_metadata, import_excel
 
         imported = import_excel(excel_path)
-        self.repo.set_meta("competition_title", self._derive_competition_title(excel_path))
+        metadata = extract_meet_metadata(excel_path)
+        self.repo.set_meta("competition_title", metadata.get("competition_title") or self._derive_competition_title(excel_path))
+        self.repo.set_meta("competition_date", metadata.get("competition_date") or "")
+        self.repo.set_meta("competition_place", metadata.get("competition_place") or "")
+        self.repo.set_meta("age_groups", json.dumps(metadata.get("age_groups") or [], ensure_ascii=False))
+        self.repo.set_meta("relay_age_groups", json.dumps(metadata.get("relay_age_groups") or [], ensure_ascii=False))
         for event_name, swimmers in imported.items():
             lanes_count = self._infer_imported_lanes_count(swimmers)
             event_id = self.repo.upsert_event(event_name, lanes_count=lanes_count)
@@ -206,13 +221,14 @@ class MeetService:
     ) -> str:
         event = next(e for e in self.repo.list_events() if e.id == event_id)
         swimmers = self.repo.list_swimmers(event_id)
-        return self._build_protocol_html(
-            event.name,
-            swimmers,
-            grouped=grouped,
+        return self._build_protocol_document(
+            page_title=event.name,
+            events=[(event.name, swimmers)],
+            final_mode=False,
             sort_by=sort_by,
             sort_desc=sort_desc,
             group_by=group_by,
+            grouped=grouped,
         )
 
     def build_final_protocol(
@@ -222,87 +238,221 @@ class MeetService:
         sort_desc: bool = False,
         group_by: str = "heat",
     ) -> str:
-        competition_title = self.repo.get_meta("competition_title") or "Итоговый протокол соревнований"
-        blocks: list[str] = [
-            "<style>@page { size: A4 portrait; margin: 12mm; } body { font-family: Arial, sans-serif; }"
-            " h1, h2 { margin: 0 0 8px 0; } table { margin-bottom: 16px; font-size: 12px; border-collapse: collapse; }"
-            " th, td { border: 1px solid #333; padding: 4px; }</style>",
-            f"<h1>{competition_title}</h1>",
-        ]
+        events = []
         for event in self.repo.list_events():
-            swimmers = self.repo.list_swimmers(event.id)
-            swimmers = self._filter_final_protocol_swimmers(swimmers)
-            blocks.append(
-                self._build_final_protocol_event_html(
-                    event.name,
-                    swimmers,
-                    sort_by=sort_by,
-                    sort_desc=sort_desc,
-                )
-            )
-        return "\n".join(blocks)
-
-    def _build_final_protocol_event_html(
-        self,
-        title: str,
-        swimmers: list,
-        sort_by: str = "place",
-        sort_desc: bool = False,
-    ) -> str:
-        active = [s for s in swimmers if s.status != "DNS"]
-        ranked = sorted(active, key=lambda s: (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name))
-        places: dict[int, int] = {}
-        last_time_cs = None
-        for idx, swimmer in enumerate(ranked, start=1):
-            if swimmer.result_time_cs is None:
-                continue
-            if swimmer.result_time_cs != last_time_cs:
-                places[swimmer.id] = idx
-                last_time_cs = swimmer.result_time_cs
-                continue
-            places[swimmer.id] = places[ranked[idx - 2].id]
-
-        def sort_key(s):
-            if sort_by == "full_name":
-                return (s.full_name.lower(),)
-            return (places.get(s.id, 10**9), s.full_name.lower())
-
-        rows = [
-            "<tr>"
-            f"<td>{places.get(s.id, '')}</td>"
-            f"<td>{s.full_name}</td>"
-            "</tr>"
-            for s in sorted(swimmers, key=sort_key, reverse=sort_desc)
-        ]
-        return (
-            f"<h2>{title}</h2>"
-            "<table border='1' cellspacing='0' cellpadding='4' width='100%'>"
-            "<tr><th>Место</th><th>ФИО</th></tr>"
-            + "".join(rows)
-            + "</table>"
+            swimmers = self._filter_final_protocol_swimmers(self.repo.list_swimmers(event.id))
+            events.append((event.name, swimmers))
+        return self._build_protocol_document(
+            page_title=f"Итоговый протокол {self.repo.get_meta('competition_title') or 'соревнований'}",
+            events=events,
+            final_mode=True,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            group_by=group_by,
+            grouped=grouped,
         )
 
-    def _filter_final_protocol_swimmers(self, swimmers: list) -> list:
-        disallowed_marks = {"DNS", "DQ"}
-        return [
-            s
-            for s in swimmers
-            if s.status != "DNS" and ((s.result_mark or "").strip().upper() not in disallowed_marks)
-        ]
-
-    def _build_protocol_html(
+    def _build_protocol_document(
         self,
-        title: str,
-        swimmers: list,
+        page_title: str,
+        events: list[tuple[str, list]],
+        final_mode: bool,
+        sort_by: str,
+        sort_desc: bool,
+        group_by: str,
         grouped: bool,
-        with_title: bool = True,
-        sort_by: str = "place",
-        sort_desc: bool = False,
-        group_by: str = "heat",
-        compact: bool = False,
     ) -> str:
+        title = self.repo.get_meta("competition_title") or "Итоговый протокол соревнований"
+        date = self.repo.get_meta("competition_date") or ""
+        place = self.repo.get_meta("competition_place") or ""
+        body: list[str] = [self._protocol_styles()]
+        body.append(f"<div class='doc-title'>{html.escape(page_title)}</div>")
+        body.append("<table class='meta-table'>")
+        body.append(f"<tr><td>{html.escape(date)}</td></tr>")
+        body.append(f"<tr><td>{html.escape(place)}</td></tr>")
+        body.append("</table>")
+        if not final_mode and title and title != page_title:
+            body.append(f"<div class='meet-line'>Соревнование: {html.escape(title)}</div>")
+
+        for event_name, swimmers in events:
+            groups = self._split_event_into_age_groups(event_name, swimmers)
+            for group in groups:
+                body.append(
+                    self._build_age_group_table_html(
+                        event_name=event_name,
+                        swimmers=group["swimmers"],
+                        age_label=group["age_label"],
+                        gender_label=group["gender_label"],
+                        gender_color=group["gender_color"],
+                        final_mode=final_mode,
+                        sort_by=sort_by,
+                        sort_desc=sort_desc,
+                        group_by=group_by,
+                        grouped=grouped,
+                    )
+                )
+        return "\n".join(body)
+
+    def _protocol_styles(self) -> str:
+        return (
+            "<style>"
+            "@page { size: A4 portrait; margin: 12mm; }"
+            "body { font-family: Arial, sans-serif; color: #000; }"
+            ".doc-title { text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 18px 0; }"
+            ".meet-line { font-size: 16px; margin: 0 0 8px 0; }"
+            ".meta-table { width: 100%; border-collapse: collapse; margin: 0 0 16px 0; }"
+            ".meta-table td { border: 1px solid #cfcfcf; padding: 8px 10px; text-align: center; font-size: 16px; }"
+            ".protocol-table { width: 100%; border-collapse: collapse; margin: 0 0 18px 0; font-size: 14px; }"
+            ".protocol-table th, .protocol-table td { border: 1px solid #cfcfcf; padding: 6px 8px; }"
+            ".protocol-table th { text-align: left; }"
+            ".category-title { color: #fff; text-align: center; font-weight: 700; font-size: 18px; text-transform: uppercase; padding: 12px 8px; }"
+            ".category-title.boys { background: #5b9bd5; }"
+            ".category-title.girls { background: #e06666; }"
+            ".category-title.mixed { background: #808080; }"
+            ".num, .place, .year, .heat, .lane, .time { text-align: center; }"
+            ".name { text-align: left; }"
+            ".heat-label td { background: #f1f1f1; font-weight: 700; text-align: center; }"
+            "</style>"
+        )
+
+    def _split_event_into_age_groups(self, event_name: str, swimmers: list) -> list[dict]:
+        age_groups = self._load_age_groups(event_name)
+        gender_label, gender_color = self._detect_gender(event_name)
+        base_title = self._base_event_name(event_name)
+        if not age_groups:
+            return [{
+                "base_title": base_title,
+                "age_label": "Все возраста",
+                "gender_label": gender_label,
+                "gender_color": gender_color,
+                "swimmers": list(swimmers),
+            }]
+
+        result: list[dict] = []
+        for group in age_groups:
+            filtered = [s for s in swimmers if self._matches_age_group(s.birth_year, group)]
+            if filtered:
+                result.append(
+                    {
+                        "base_title": base_title,
+                        "age_label": group["label"],
+                        "gender_label": gender_label,
+                        "gender_color": gender_color,
+                        "swimmers": filtered,
+                    }
+                )
+        if result:
+            return result
+        return [{
+            "base_title": base_title,
+            "age_label": "Все возраста",
+            "gender_label": gender_label,
+            "gender_color": gender_color,
+            "swimmers": list(swimmers),
+        }]
+
+    def _load_age_groups(self, event_name: str) -> list[dict]:
+        raw = self.repo.get_meta("relay_age_groups" if self._is_relay_event(event_name) else "age_groups") or "[]"
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        return [group for group in data if isinstance(group, dict) and group.get("label")]
+
+    def _is_relay_event(self, event_name: str) -> bool:
+        lowered = event_name.lower()
+        return "эстаф" in lowered or "x" in lowered or "х" in lowered or "×" in lowered
+
+    def _matches_age_group(self, birth_year: int | None, group: dict) -> bool:
+        if birth_year is None:
+            return False
+        min_year = group.get("min_year")
+        max_year = group.get("max_year")
+        if min_year is not None and birth_year < int(min_year):
+            return False
+        if max_year is not None and birth_year > int(max_year):
+            return False
+        return True
+
+    def _detect_gender(self, event_name: str) -> tuple[str, str]:
+        lowered = event_name.lower()
+        if any(token in lowered for token in ("женщ", "девуш", "девоч")):
+            return "Девушки", "girls"
+        if any(token in lowered for token in ("мужч", "юнош", "мальч")):
+            return "Юноши", "boys"
+        return "Все", "mixed"
+
+    def _base_event_name(self, event_name: str) -> str:
+        return TITLE_GENDER_SUFFIX_RE.sub("", event_name).strip(" ,") or event_name.strip()
+
+    def _build_age_group_table_html(
+        self,
+        event_name: str,
+        swimmers: list,
+        age_label: str,
+        gender_label: str,
+        gender_color: str,
+        final_mode: bool,
+        sort_by: str,
+        sort_desc: bool,
+        group_by: str,
+        grouped: bool,
+    ) -> str:
+        ranked, places = self._rank_swimmers(swimmers)
+        title = f"{self._base_event_name(event_name)} {gender_label}, {age_label}".upper()
+        parts = ["<table class='protocol-table'>"]
+        parts.append(f"<tr><td class='category-title {gender_color}' colspan='6'>{html.escape(title)}</td></tr>")
+        if final_mode:
+            parts.append("<tr><th class='num'>№</th><th>Фамилия Имя</th><th class='year'>Год рождения</th><th>Команда</th><th class='time'>Время</th><th class='place'>Место</th></tr>")
+            ordered = self._sort_protocol_rows(swimmers, places, sort_by, sort_desc, final_mode=True)
+            for index, swimmer in enumerate(ordered, start=1):
+                parts.append(
+                    "<tr>"
+                    f"<td class='num'>{index}</td>"
+                    f"<td class='name'>{html.escape(swimmer.full_name)}</td>"
+                    f"<td class='year'>{swimmer.birth_year or ''}</td>"
+                    f"<td>{html.escape(swimmer.team or '')}</td>"
+                    f"<td class='time'>{html.escape(swimmer.result_time_raw or swimmer.seed_time_raw or '')}</td>"
+                    f"<td class='place'>{places.get(swimmer.id, '')}</td>"
+                    "</tr>"
+                )
+        else:
+            parts.append("<tr><th class='heat'>Заплыв</th><th class='lane'>Дорожка</th><th>Ф. И.</th><th class='year'>Год рождения</th><th>Команда</th><th class='time'>Заявочное время</th></tr>")
+            if grouped and group_by == "heat":
+                ordered = sorted(swimmers, key=lambda s: (s.heat is None, s.heat or 999, s.lane is None, s.lane or 999, s.full_name.lower()))
+                current_heat = object()
+                for swimmer in ordered:
+                    if swimmer.heat != current_heat:
+                        current_heat = swimmer.heat
+                    parts.append(
+                        "<tr>"
+                        f"<td class='heat'>{swimmer.heat or ''}</td>"
+                        f"<td class='lane'>{swimmer.lane or ''}</td>"
+                        f"<td class='name'>{html.escape(swimmer.full_name)}</td>"
+                        f"<td class='year'>{swimmer.birth_year or ''}</td>"
+                        f"<td>{html.escape(swimmer.team or '')}</td>"
+                        f"<td class='time'>{html.escape(swimmer.seed_time_raw or '')}</td>"
+                        "</tr>"
+                    )
+            else:
+                ordered = self._sort_protocol_rows(swimmers, places, sort_by, sort_desc, final_mode=False)
+                for swimmer in ordered:
+                    parts.append(
+                        "<tr>"
+                        f"<td class='heat'>{swimmer.heat or ''}</td>"
+                        f"<td class='lane'>{swimmer.lane or ''}</td>"
+                        f"<td class='name'>{html.escape(swimmer.full_name)}</td>"
+                        f"<td class='year'>{swimmer.birth_year or ''}</td>"
+                        f"<td>{html.escape(swimmer.team or '')}</td>"
+                        f"<td class='time'>{html.escape(swimmer.seed_time_raw or '')}</td>"
+                        "</tr>"
+                    )
+        parts.append("</table>")
+        return "".join(parts)
+
+    def _rank_swimmers(self, swimmers: list) -> tuple[list, dict[int, int]]:
         active = [s for s in swimmers if s.status != "DNS"]
-        ranked = sorted(active, key=lambda s: (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name))
+        ranked = sorted(active, key=lambda s: (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name.lower()))
         places: dict[int, int] = {}
         last_time_cs = None
         for idx, swimmer in enumerate(ranked, start=1):
@@ -313,30 +463,9 @@ class MeetService:
                 last_time_cs = swimmer.result_time_cs
                 continue
             places[swimmer.id] = places[ranked[idx - 2].id]
+        return ranked, places
 
-        def row_html(s, place: str) -> str:
-            if compact:
-                return (
-                    "<tr>"
-                    f"<td>{s.full_name}</td>"
-                    f"<td>{s.team or ''}</td>"
-                    f"<td>{s.seed_time_raw or ''}</td>"
-                    f"<td>{s.result_time_raw or ''}</td>"
-                    f"<td>{place}</td>"
-                    "</tr>"
-                )
-            return (
-                "<tr>"
-                f"<td>{s.heat or '-'} / {s.lane or '-'}</td>"
-                f"<td>{s.full_name}</td>"
-                f"<td>{s.team or ''}</td>"
-                f"<td>{s.seed_time_raw or ''}</td>"
-                f"<td>{s.result_time_raw or ''}</td>"
-                f"<td>{s.result_mark or ''}</td>"
-                f"<td>{place}</td>"
-                "</tr>"
-            )
-
+    def _sort_protocol_rows(self, swimmers: list, places: dict[int, int], sort_by: str, sort_desc: bool, final_mode: bool) -> list:
         def sort_key(s):
             if sort_by == "id":
                 return (s.id,)
@@ -360,56 +489,16 @@ class MeetService:
                 return (mark == "", mark, s.full_name.lower())
             if sort_by == "full_name":
                 return (s.full_name.lower(),)
-            return (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name.lower())
+            if final_mode:
+                return (places.get(s.id, 10**9), s.full_name.lower())
+            return (s.heat is None, s.heat or 999, s.lane is None, s.lane or 999, s.full_name.lower())
 
-        def group_key(s):
-            if group_by == "status":
-                status = (s.status or "").strip()
-                return (status.lower(),), status or "Статус не указан"
-            if group_by == "team":
-                label = (s.team or "").strip()
-                return (label.lower(),), label or "Без команды"
-            if group_by == "birth_year":
-                year = s.birth_year
-                return (year is None, year or 0), str(year) if year else "Год не указан"
-            if group_by == "mark":
-                mark = (s.result_mark or "").strip()
-                return (mark == "", mark), mark or "Без отметки"
-            if group_by == "lane":
-                lane = s.lane
-                return (lane is None, lane or 0), f"Дорожка {lane}" if lane else "Без дорожки"
-            heat_key = s.heat or 999
-            return (heat_key,), "Без заплыва" if heat_key == 999 else f"Заплыв {heat_key}"
+        return sorted(swimmers, key=sort_key, reverse=sort_desc)
 
-        rows: list[str] = []
-        if grouped:
-            groups: dict[tuple, dict[str, object]] = {}
-            for s in swimmers:
-                key, label = group_key(s)
-                if key not in groups:
-                    groups[key] = {"label": label, "rows": []}
-                groups[key]["rows"].append(s)
-            for group in sorted(groups):
-                col_span = "5" if compact else "7"
-                rows.append(f"<tr><td colspan='{col_span}'><b>{groups[group]['label']}</b></td></tr>")
-                for s in sorted(groups[group]["rows"], key=sort_key, reverse=sort_desc):
-                    place = str(places.get(s.id, ""))
-                    rows.append(row_html(s, place))
-        else:
-            for s in sorted(swimmers, key=sort_key, reverse=sort_desc):
-                place = str(places.get(s.id, ""))
-                rows.append(row_html(s, place))
-
-        heading = f"<h2>{title}</h2>" if with_title else ""
-        header = (
-            "<tr><th>ФИО</th><th>Команда</th><th>Заявка</th><th>Результат</th><th>Место</th></tr>"
-            if compact
-            else "<tr><th>Заплыв/дорожка</th><th>ФИО</th><th>Команда</th><th>Заявка</th><th>Результат</th><th>Отм.</th><th>Место</th></tr>"
-        )
-        return (
-            f"{heading}"
-            "<table border='1' cellspacing='0' cellpadding='4' width='100%'>"
-            f"{header}"
-            + "".join(rows)
-            + "</table>"
-        )
+    def _filter_final_protocol_swimmers(self, swimmers: list) -> list:
+        disallowed_marks = {"DNS", "DQ"}
+        return [
+            s
+            for s in swimmers
+            if s.status != "DNS" and ((s.result_mark or "").strip().upper() not in disallowed_marks)
+        ]
