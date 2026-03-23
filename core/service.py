@@ -9,6 +9,10 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+
 from core.db import MeetRepository
 from core.models import Secretary
 from core.reseeding import compress_lanes_within_heats, full_reseed
@@ -276,7 +280,7 @@ class MeetService:
         title = self.repo.get_meta("competition_title") or "Итоговый протокол соревнований"
         date = self.repo.get_meta("competition_date") or ""
         place = self.repo.get_meta("competition_place") or ""
-        body: list[str] = [self._protocol_styles()]
+        body: list[str] = [self._protocol_styles(), "<div class='page'>"]
         doc_title = title if not final_mode else page_title
         body.append(f"<div class='doc-title'>{html.escape(doc_title)}</div>")
         body.append("<table class='meta-table'>")
@@ -301,20 +305,29 @@ class MeetService:
                         grouped=grouped,
                     )
                 )
+        body.append("</div>")
         return "\n".join(body)
 
     def _protocol_styles(self) -> str:
         return (
             "<style>"
             "@page { size: A4 portrait; margin: 12mm; }"
+            "html, body { margin: 0; padding: 0; }"
             "body { font-family: Arial, sans-serif; color: #000; }"
-            ".doc-title { text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 18px 0; }"
+            ".page { width: 186mm; max-width: 186mm; margin: 0 auto; box-sizing: border-box; }"
+            ".doc-title { width: 100%; text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 18px 0; }"
             ".meet-line { font-size: 16px; margin: 0 0 8px 0; }"
-            ".meta-table { width: 100%; border-collapse: collapse; margin: 0 0 16px 0; }"
+            ".meta-table { width: 100%; border-collapse: collapse; margin: 0 0 16px 0; table-layout: fixed; }"
             ".meta-table td { border: 1px solid #cfcfcf; padding: 8px 10px; text-align: center; font-size: 16px; }"
-            ".protocol-table { width: 100%; border-collapse: collapse; margin: 0 0 18px 0; font-size: 14px; }"
+            ".protocol-table { width: 100%; border-collapse: collapse; margin: 0 0 18px 0; font-size: 14px; table-layout: fixed; }"
             ".protocol-table th, .protocol-table td { border: 1px solid #cfcfcf; padding: 6px 8px; }"
             ".protocol-table th { text-align: left; }"
+            ".protocol-table .col-1 { width: 11%; }"
+            ".protocol-table .col-2 { width: 11%; }"
+            ".protocol-table .col-3 { width: 28%; }"
+            ".protocol-table .col-4 { width: 14%; }"
+            ".protocol-table .col-5 { width: 24%; }"
+            ".protocol-table .col-6 { width: 12%; }"
             ".category-title { color: #fff; text-align: center; font-weight: 700; font-size: 18px; text-transform: uppercase; padding: 12px 8px; }"
             ".category-title.boys { background: #5b9bd5; }"
             ".category-title.girls { background: #e06666; }"
@@ -323,6 +336,7 @@ class MeetService:
             ".name { text-align: left; }"
             ".heat-label td { background: #f1f1f1; font-weight: 700; text-align: center; }"
             ".heat-merged { vertical-align: middle; font-weight: 700; }"
+            "@media print { .page { width: 100%; max-width: none; margin: 0; } }"
             "</style>"
         )
 
@@ -415,6 +429,219 @@ class MeetService:
         base_name, _ = self._parse_event_name(event_name)
         return base_name
 
+    def export_event_protocol_excel(
+        self,
+        path: Path,
+        event_id: int,
+        grouped: bool = True,
+        sort_by: str = "place",
+        sort_desc: bool = False,
+        group_by: str = "heat",
+    ) -> Path:
+        event = next(e for e in self.repo.list_events() if e.id == event_id)
+        swimmers = self.repo.list_swimmers(event_id)
+        results_mode = any(self._swimmer_has_result(swimmer) for swimmer in swimmers)
+        return self._export_protocol_workbook(
+            path=path,
+            page_title=self.repo.get_meta("competition_title") or event.name,
+            events=[(event.name, swimmers)],
+            final_mode=results_mode,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            group_by=group_by,
+            grouped=grouped,
+        )
+
+    def export_final_protocol_excel(
+        self,
+        path: Path,
+        grouped: bool = True,
+        sort_by: str = "place",
+        sort_desc: bool = False,
+        group_by: str = "heat",
+    ) -> Path:
+        events = []
+        for event in self.repo.list_events():
+            swimmers = self._filter_final_protocol_swimmers(self.repo.list_swimmers(event.id))
+            events.append((event.name, swimmers))
+        return self._export_protocol_workbook(
+            path=path,
+            page_title=f"Итоговый протокол {self.repo.get_meta('competition_title') or 'соревнований'}",
+            events=events,
+            final_mode=True,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            group_by=group_by,
+            grouped=grouped,
+        )
+
+    def _export_protocol_workbook(
+        self,
+        path: Path,
+        page_title: str,
+        events: list[tuple[str, list]],
+        final_mode: bool,
+        sort_by: str,
+        sort_desc: bool,
+        group_by: str,
+        grouped: bool,
+    ) -> Path:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Протокол"
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+        ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.page_margins.left = 0.3
+        ws.page_margins.right = 0.3
+        ws.page_margins.top = 0.5
+        ws.page_margins.bottom = 0.5
+        ws.sheet_view.showGridLines = False
+
+        column_widths = [10, 10, 28, 14, 24, 12]
+        for index, width in enumerate(column_widths, start=1):
+            ws.column_dimensions[get_column_letter(index)].width = width
+
+        thin = Side(style="thin", color="CFCFCF")
+        border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        title_font = Font(name="Arial", size=16, bold=True)
+        header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+        table_header_font = Font(name="Arial", size=11, bold=True)
+        body_font = Font(name="Arial", size=10)
+        fills = {
+            "boys": PatternFill("solid", fgColor="5B9BD5"),
+            "girls": PatternFill("solid", fgColor="E06666"),
+            "mixed": PatternFill("solid", fgColor="808080"),
+        }
+
+        doc_title = page_title if final_mode else (self.repo.get_meta("competition_title") or "Итоговый протокол соревнований")
+        row = 1
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        cell = ws.cell(row=row, column=1, value=doc_title)
+        cell.font = title_font
+        cell.alignment = center
+        row += 1
+
+        for meta_value in (self.repo.get_meta("competition_date") or "", self.repo.get_meta("competition_place") or ""):
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+            cell = ws.cell(row=row, column=1, value=meta_value)
+            cell.font = Font(name="Arial", size=11)
+            cell.alignment = center
+            cell.border = border
+            row += 1
+        row += 1
+
+        for event_name, swimmers in events:
+            groups = self._split_event_into_age_groups(event_name, swimmers)
+            for group in groups:
+                ranked, places = self._rank_swimmers(group["swimmers"])
+                title_parts = [self._base_event_name(event_name), group["gender_label"]]
+                if group["gender_label"] == "Все":
+                    title_parts.append(group["age_label"])
+                elif group["age_label"] != "Все возраста":
+                    title_parts.append(group["age_label"])
+                table_title = ", ".join(title_parts).upper()
+
+                ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+                title_cell = ws.cell(row=row, column=1, value=table_title)
+                title_cell.font = header_font
+                title_cell.alignment = center
+                title_cell.fill = fills[group["gender_color"]]
+                title_cell.border = border
+                ws.row_dimensions[row].height = 24
+                row += 1
+
+                headers = (
+                    ["№", "Фамилия Имя", "Год рождения", "Команда", "Время", "Место"]
+                    if final_mode
+                    else ["Заплыв", "Дорожка", "Ф. И.", "Год рождения", "Команда", "Заявочное время"]
+                )
+                for column, value in enumerate(headers, start=1):
+                    header_cell = ws.cell(row=row, column=column, value=value)
+                    header_cell.font = table_header_font
+                    header_cell.alignment = center if column != 3 and column != 5 else left
+                    header_cell.border = border
+                ws.row_dimensions[row].height = 22
+                row += 1
+
+                if final_mode:
+                    ordered = self._sort_protocol_rows(group["swimmers"], places, sort_by, sort_desc, final_mode=True)
+                    for index, swimmer in enumerate(ordered, start=1):
+                        values = [
+                            index,
+                            swimmer.full_name,
+                            swimmer.birth_year or "",
+                            swimmer.team or "",
+                            self._display_swimmer_time(swimmer),
+                            places.get(swimmer.id, ""),
+                        ]
+                        for column, value in enumerate(values, start=1):
+                            body_cell = ws.cell(row=row, column=column, value=value)
+                            body_cell.font = body_font
+                            body_cell.alignment = left if column in {2, 4} else center
+                            body_cell.border = border
+                        row += 1
+                else:
+                    if grouped and group_by == "heat":
+                        ordered = sorted(
+                            group["swimmers"],
+                            key=lambda s: (s.heat is None, s.heat or 999, s.lane is None, s.lane or 999, s.full_name.lower()),
+                        )
+                        heat_sizes: dict[int | None, int] = {}
+                        for swimmer in ordered:
+                            heat_sizes[swimmer.heat] = heat_sizes.get(swimmer.heat, 0) + 1
+                        rendered_heats: set[int | None] = set()
+                        for swimmer in ordered:
+                            start_row = row
+                            values = [
+                                swimmer.heat or "",
+                                swimmer.lane or "",
+                                swimmer.full_name,
+                                swimmer.birth_year or "",
+                                swimmer.team or "",
+                                swimmer.seed_time_raw or "",
+                            ]
+                            for column, value in enumerate(values, start=1):
+                                body_cell = ws.cell(row=row, column=column, value=value)
+                                body_cell.font = body_font
+                                body_cell.alignment = left if column in {3, 5} else center
+                                body_cell.border = border
+                            if swimmer.heat not in rendered_heats:
+                                rendered_heats.add(swimmer.heat)
+                                rowspan = heat_sizes.get(swimmer.heat, 1)
+                                if rowspan > 1:
+                                    ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row + rowspan - 1, end_column=1)
+                                ws.cell(row=start_row, column=1).alignment = center
+                            else:
+                                ws.cell(row=row, column=1, value=None)
+                            row += 1
+                    else:
+                        ordered = self._sort_protocol_rows(group["swimmers"], places, sort_by, sort_desc, final_mode=False)
+                        for swimmer in ordered:
+                            values = [
+                                swimmer.heat or "",
+                                swimmer.lane or "",
+                                swimmer.full_name,
+                                swimmer.birth_year or "",
+                                swimmer.team or "",
+                                swimmer.seed_time_raw or "",
+                            ]
+                            for column, value in enumerate(values, start=1):
+                                body_cell = ws.cell(row=row, column=column, value=value)
+                                body_cell.font = body_font
+                                body_cell.alignment = left if column in {3, 5} else center
+                                body_cell.border = border
+                            row += 1
+                row += 1
+
+        output_path = Path(path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        wb.save(output_path)
+        return output_path
+
     def _build_age_group_table_html(
         self,
         event_name: str,
@@ -435,7 +662,7 @@ class MeetService:
         elif age_label != "Все возраста":
             title_parts.append(age_label)
         title = ", ".join(title_parts).upper()
-        parts = ["<table class='protocol-table'>"]
+        parts = ["<table class='protocol-table'><colgroup><col class='col-1'><col class='col-2'><col class='col-3'><col class='col-4'><col class='col-5'><col class='col-6'></colgroup>"]
         parts.append(f"<tr><td class='category-title {gender_color}' colspan='6'>{html.escape(title)}</td></tr>")
         if final_mode:
             parts.append("<tr><th class='num'>№</th><th>Фамилия Имя</th><th class='year'>Год рождения</th><th>Команда</th><th class='time'>Время</th><th class='place'>Место</th></tr>")

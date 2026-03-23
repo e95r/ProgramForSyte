@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QSettings, QSizeF, Qt
 from PySide6.QtGui import QFont, QPageSize, QTextDocument
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
@@ -500,6 +500,14 @@ class MainWindow(QMainWindow):
                 sort_desc=sort_desc,
                 group_by=group_by,
             ),
+            build_excel=lambda path, grouped, sort_by, sort_desc, group_by: self.service.export_event_protocol_excel(
+                path,
+                event_id,
+                grouped=grouped,
+                sort_by=sort_by,
+                sort_desc=sort_desc,
+                group_by=group_by,
+            ),
             allow_sorting=True,
             self_parent=self,
         )
@@ -510,6 +518,13 @@ class MainWindow(QMainWindow):
             self.service,
             title="Итоговый протокол соревнований",
             build_html=lambda grouped, sort_by, sort_desc, group_by: self.service.build_final_protocol(
+                grouped=grouped,
+                sort_by=sort_by,
+                sort_desc=sort_desc,
+                group_by=group_by,
+            ),
+            build_excel=lambda path, grouped, sort_by, sort_desc, group_by: self.service.export_final_protocol_excel(
+                path,
                 grouped=grouped,
                 sort_by=sort_by,
                 sort_desc=sort_desc,
@@ -781,12 +796,14 @@ class ProtocolDialog(QDialog):
         service: MeetService,
         title: str,
         build_html,
+        build_excel=None,
         allow_sorting: bool = False,
         self_parent: QWidget | None = None,
     ):
         super().__init__(self_parent)
         self.service = service
         self.build_html = build_html
+        self.build_excel = build_excel
         self.allow_sorting = allow_sorting
         self.setWindowTitle(title)
         self.resize(1000, 700)
@@ -863,13 +880,23 @@ class ProtocolDialog(QDialog):
     def refresh_html(self) -> None:
         self.viewer.setHtml(self.current_html())
 
+    def _build_document(self) -> QTextDocument:
+        doc = QTextDocument()
+        doc.setDocumentMargin(0)
+        doc.setHtml(self.current_html())
+        return doc
+
+    def _configure_document_for_printer(self, doc: QTextDocument, printer: QPrinter) -> None:
+        page_rect = printer.pageLayout().paintRectPixels(printer.resolution())
+        doc.setPageSize(QSizeF(page_rect.width(), page_rect.height()))
+
     def print_protocol(self) -> None:
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
         dialog = QPrintDialog(printer, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            doc = QTextDocument()
-            doc.setHtml(self.current_html())
+            doc = self._build_document()
+            self._configure_document_for_printer(doc, printer)
             doc.print_(printer)
 
     def save_protocol(self) -> None:
@@ -877,21 +904,34 @@ class ProtocolDialog(QDialog):
             self,
             "Сохранить протокол",
             str(Path.home() / "protocol.pdf"),
-            "PDF (*.pdf);;HTML (*.html);;Text (*.txt)",
+            "PDF (*.pdf);;Excel (*.xlsx);;HTML (*.html);;Text (*.txt)",
         )
         if not path:
             return
 
-        if selected_filter.startswith("PDF") or path.lower().endswith(".pdf"):
-            if not path.lower().endswith(".pdf"):
+        lower_path = path.lower()
+        if selected_filter.startswith("PDF") or lower_path.endswith(".pdf"):
+            if not lower_path.endswith(".pdf"):
                 path = f"{path}.pdf"
             printer = QPrinter(QPrinter.PrinterMode.HighResolution)
             printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
             printer.setOutputFileName(path)
             printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
-            doc = QTextDocument()
-            doc.setHtml(self.current_html())
+            doc = self._build_document()
+            self._configure_document_for_printer(doc, printer)
             doc.print_(printer)
+        elif selected_filter.startswith("Excel") or lower_path.endswith(".xlsx"):
+            if self.build_excel is None:
+                QMessageBox.warning(self, "Сохранение", "Экспорт в Excel для этого протокола недоступен")
+                return
+            if not lower_path.endswith(".xlsx"):
+                path = f"{path}.xlsx"
+            group_mode = self.group_mode_combo.currentData()
+            grouped = group_mode != "none"
+            if self.allow_sorting:
+                self.build_excel(Path(path), grouped, self.sort_combo.currentData(), self.sort_desc, group_mode)
+            else:
+                self.build_excel(Path(path), grouped)
         else:
             text = self.current_html()
             Path(path).write_text(text, encoding="utf-8")
