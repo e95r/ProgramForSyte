@@ -13,20 +13,21 @@ def test_event_protocol_uses_start_heats_and_lanes(tmp_path: Path):
         service.repo.add_swimmers(
             event_id,
             [
-                {"full_name": "B", "heat": 2, "lane": 1, "birth_year": 2013, "team": "Sharks", "seed_time_raw": "00:35:00", "seed_time_cs": 3500},
+                {"full_name": "B", "heat": 1, "lane": 1, "birth_year": 2013, "team": "Sharks", "seed_time_raw": "00:35:00", "seed_time_cs": 3500},
                 {"full_name": "A", "heat": 1, "lane": 2, "birth_year": 2012, "team": "Dolphins", "seed_time_raw": "00:33:00", "seed_time_cs": 3300},
             ],
         )
 
         html = service.build_event_protocol(event_id, grouped=True)
-        assert "Открытый турнир по плаванию «АКВАДОН»" in html
+        assert "<div class='doc-title'>Открытый турнир по плаванию «АКВАДОН»</div>" in html
         assert "25.04.2026" in html
         assert "Донской, Тульская область" in html
         assert "100 БРАСС, МУЖЧИНЫ" in html
         assert "100 БРАСС, МУЖЧИНЫ, ВСЕ ВОЗРАСТА" not in html
-        assert "<td class='heat'>1</td>" in html
+        assert "rowspan='2'>1</td>" in html
+        assert "<td class='lane'>1</td>" in html
         assert "<td class='lane'>2</td>" in html
-        assert "<td class='heat'>2</td>" in html
+        assert "Соревнование:" not in html
     finally:
         service.close()
 
@@ -232,6 +233,39 @@ def test_event_protocol_uses_women_gender_title_without_all_ages_suffix(tmp_path
 
         assert "100 БРАСС, ЖЕНЩИНЫ" in html
         assert "100 БРАСС, ЖЕНЩИНЫ, ВСЕ ВОЗРАСТА" not in html
+    finally:
+        service.close()
+
+
+def test_event_protocol_with_results_uses_competition_header_and_places(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        service.repo.set_meta("competition_title", "Открытый турнир по плаванию Аквадон")
+        service.repo.set_meta("competition_date", "25.04.2026")
+        service.repo.set_meta("competition_place", "Донской, Тульская область")
+        service.repo.set_meta(
+            "age_groups",
+            '[{"index": 1, "label": "2010 и старше", "min_year": null, "max_year": 2010}]',
+        )
+        event_id = service.repo.upsert_event("100 брасс, женщины")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "Белова Екатерина", "birth_year": 2010, "team": "Команда 1", "result_time_raw": "1.38.47", "result_time_cs": 9847},
+                {"full_name": "Андреева Алина", "birth_year": 2000, "team": "Команда 2", "result_time_raw": "1.31.43", "result_time_cs": 9143},
+                {"full_name": "Гаврилова Вероника", "birth_year": 2005, "team": "Команда 3", "result_time_raw": "1.34.53", "result_time_cs": 9453},
+            ],
+        )
+
+        html = service.build_event_protocol(event_id)
+
+        assert "<div class='doc-title'>Открытый турнир по плаванию Аквадон</div>" in html
+        assert "100 БРАСС, ЖЕНЩИНЫ, 2010 И СТАРШЕ" in html
+        assert "<th class='time'>Время</th><th class='place'>Место</th>" in html
+        assert html.index("Андреева Алина") < html.index("Гаврилова Вероника") < html.index("Белова Екатерина")
+        assert html.count("<td class='place'>1</td>") == 1
+        assert html.count("<td class='place'>2</td>") == 1
+        assert html.count("<td class='place'>3</td>") == 1
     finally:
         service.close()
 
