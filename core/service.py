@@ -244,6 +244,7 @@ class MeetService:
             sort_desc=sort_desc,
             group_by=group_by,
             grouped=grouped,
+            show_heat_column=False,
         )
 
     def build_final_protocol(
@@ -265,6 +266,7 @@ class MeetService:
             sort_desc=sort_desc,
             group_by=group_by,
             grouped=grouped,
+            show_heat_column=False,
         )
 
     def _build_protocol_document(
@@ -276,6 +278,7 @@ class MeetService:
         sort_desc: bool,
         group_by: str,
         grouped: bool,
+        show_heat_column: bool,
     ) -> str:
         title = self.repo.get_meta("competition_title") or "Итоговый протокол соревнований"
         date = self.repo.get_meta("competition_date") or ""
@@ -303,6 +306,7 @@ class MeetService:
                         sort_desc=sort_desc,
                         group_by=group_by,
                         grouped=grouped,
+                        show_heat_column=show_heat_column,
                     )
                 )
         body.append("</div>")
@@ -450,6 +454,7 @@ class MeetService:
             sort_desc=sort_desc,
             group_by=group_by,
             grouped=grouped,
+            show_heat_column=False,
         )
 
     def export_final_protocol_excel(
@@ -473,6 +478,7 @@ class MeetService:
             sort_desc=sort_desc,
             group_by=group_by,
             grouped=grouped,
+            show_heat_column=False,
         )
 
     def _export_protocol_workbook(
@@ -485,6 +491,7 @@ class MeetService:
         sort_desc: bool,
         group_by: str,
         grouped: bool,
+        show_heat_column: bool,
     ) -> Path:
         wb = Workbook()
         ws = wb.active
@@ -499,7 +506,8 @@ class MeetService:
         ws.page_margins.bottom = 0.5
         ws.sheet_view.showGridLines = False
 
-        column_widths = [10, 10, 28, 14, 24, 12]
+        column_widths = [10, 10, 28, 14, 24, 12] if final_mode or show_heat_column else [10, 28, 14, 24, 12]
+        total_columns = len(column_widths)
         for index, width in enumerate(column_widths, start=1):
             ws.column_dimensions[get_column_letter(index)].width = width
 
@@ -519,14 +527,14 @@ class MeetService:
 
         doc_title = page_title if final_mode else (self.repo.get_meta("competition_title") or "Итоговый протокол соревнований")
         row = 1
-        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=total_columns)
         cell = ws.cell(row=row, column=1, value=doc_title)
         cell.font = title_font
         cell.alignment = center
         row += 1
 
         for meta_value in (self.repo.get_meta("competition_date") or "", self.repo.get_meta("competition_place") or ""):
-            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+            ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=total_columns)
             cell = ws.cell(row=row, column=1, value=meta_value)
             cell.font = Font(name="Arial", size=11)
             cell.alignment = center
@@ -545,7 +553,7 @@ class MeetService:
                     title_parts.append(group["age_label"])
                 table_title = ", ".join(title_parts).upper()
 
-                ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+                ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=total_columns)
                 title_cell = ws.cell(row=row, column=1, value=table_title)
                 title_cell.font = header_font
                 title_cell.alignment = center
@@ -557,7 +565,11 @@ class MeetService:
                 headers = (
                     ["№", "Фамилия Имя", "Год рождения", "Команда", "Время", "Место"]
                     if final_mode
-                    else ["Заплыв", "Дорожка", "Ф. И.", "Год рождения", "Команда", "Заявочное время"]
+                    else (
+                        ["Заплыв", "Дорожка", "Ф. И.", "Год рождения", "Команда", "Заявочное время"]
+                        if show_heat_column
+                        else ["Дорожка", "Ф. И.", "Год рождения", "Команда", "Заявочное время"]
+                    )
                 )
                 for column, value in enumerate(headers, start=1):
                     header_cell = ws.cell(row=row, column=column, value=value)
@@ -585,7 +597,7 @@ class MeetService:
                             body_cell.border = border
                         row += 1
                 else:
-                    if grouped and group_by == "heat":
+                    if grouped and group_by == "heat" and show_heat_column:
                         ordered = sorted(
                             group["swimmers"],
                             key=lambda s: (s.heat is None, s.heat or 999, s.lane is None, s.lane or 999, s.full_name.lower()),
@@ -622,18 +634,30 @@ class MeetService:
                     else:
                         ordered = self._sort_protocol_rows(group["swimmers"], places, sort_by, sort_desc, final_mode=False)
                         for swimmer in ordered:
-                            values = [
-                                swimmer.heat or "",
-                                swimmer.lane or "",
-                                swimmer.full_name,
-                                swimmer.birth_year or "",
-                                swimmer.team or "",
-                                swimmer.seed_time_raw or "",
-                            ]
+                            values = (
+                                [
+                                    swimmer.heat or "",
+                                    swimmer.lane or "",
+                                    swimmer.full_name,
+                                    swimmer.birth_year or "",
+                                    swimmer.team or "",
+                                    swimmer.seed_time_raw or "",
+                                ]
+                                if show_heat_column
+                                else [
+                                    swimmer.lane or "",
+                                    swimmer.full_name,
+                                    swimmer.birth_year or "",
+                                    swimmer.team or "",
+                                    swimmer.seed_time_raw or "",
+                                ]
+                            )
                             for column, value in enumerate(values, start=1):
                                 body_cell = ws.cell(row=row, column=column, value=value)
                                 body_cell.font = body_font
-                                body_cell.alignment = left if column in {3, 5} else center
+                                body_cell.alignment = (
+                                    left if column in ({3, 5} if show_heat_column else {2, 4}) else center
+                                )
                                 body_cell.border = border
                             row += 1
                 row += 1
@@ -655,6 +679,7 @@ class MeetService:
         sort_desc: bool,
         group_by: str,
         grouped: bool,
+        show_heat_column: bool,
     ) -> str:
         ranked, places = self._rank_swimmers(swimmers)
         title_parts = [self._base_event_name(event_name), gender_label]
@@ -663,8 +688,14 @@ class MeetService:
         elif age_label != "Все возраста":
             title_parts.append(age_label)
         title = ", ".join(title_parts).upper()
-        parts = ["<table class='protocol-table'><colgroup><col class='col-1'><col class='col-2'><col class='col-3'><col class='col-4'><col class='col-5'><col class='col-6'></colgroup>"]
-        parts.append(f"<tr><td class='category-title {gender_color}' colspan='6'>{html.escape(title)}</td></tr>")
+        start_protocol_colgroup = (
+            "<colgroup><col class='col-2'><col class='col-3'><col class='col-4'><col class='col-5'><col class='col-6'></colgroup>"
+            if not show_heat_column and not final_mode
+            else "<colgroup><col class='col-1'><col class='col-2'><col class='col-3'><col class='col-4'><col class='col-5'><col class='col-6'></colgroup>"
+        )
+        total_columns = 5 if not show_heat_column and not final_mode else 6
+        parts = [f"<table class='protocol-table'>{start_protocol_colgroup}"]
+        parts.append(f"<tr><td class='category-title {gender_color}' colspan='{total_columns}'>{html.escape(title)}</td></tr>")
         if final_mode:
             parts.append("<tr><th class='num'>№</th><th>Фамилия Имя</th><th class='year'>Год рождения</th><th>Команда</th><th class='time'>Время</th><th class='place'>Место</th></tr>")
             ordered = self._sort_protocol_rows(swimmers, places, sort_by, sort_desc, final_mode=True)
@@ -680,8 +711,12 @@ class MeetService:
                     "</tr>"
                 )
         else:
-            parts.append("<tr><th class='heat'>Заплыв</th><th class='lane'>Дорожка</th><th>Ф. И.</th><th class='year'>Год рождения</th><th>Команда</th><th class='time'>Заявочное время</th></tr>")
-            if grouped and group_by == "heat":
+            parts.append(
+                "<tr><th class='heat'>Заплыв</th><th class='lane'>Дорожка</th><th>Ф. И.</th><th class='year'>Год рождения</th><th>Команда</th><th class='time'>Заявочное время</th></tr>"
+                if show_heat_column
+                else "<tr><th class='lane'>Дорожка</th><th>Ф. И.</th><th class='year'>Год рождения</th><th>Команда</th><th class='time'>Заявочное время</th></tr>"
+            )
+            if grouped and group_by == "heat" and show_heat_column:
                 ordered = sorted(swimmers, key=lambda s: (s.heat is None, s.heat or 999, s.lane is None, s.lane or 999, s.full_name.lower()))
                 heat_sizes: dict[int | None, int] = {}
                 for swimmer in ordered:
@@ -704,9 +739,10 @@ class MeetService:
             else:
                 ordered = self._sort_protocol_rows(swimmers, places, sort_by, sort_desc, final_mode=False)
                 for swimmer in ordered:
+                    parts.append("<tr>")
+                    if show_heat_column:
+                        parts.append(f"<td class='heat'>{swimmer.heat or ''}</td>")
                     parts.append(
-                        "<tr>"
-                        f"<td class='heat'>{swimmer.heat or ''}</td>"
                         f"<td class='lane'>{swimmer.lane or ''}</td>"
                         f"<td class='name'>{html.escape(swimmer.full_name)}</td>"
                         f"<td class='year'>{swimmer.birth_year or ''}</td>"
