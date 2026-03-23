@@ -231,10 +231,11 @@ class MeetService:
     ) -> str:
         event = next(e for e in self.repo.list_events() if e.id == event_id)
         swimmers = self.repo.list_swimmers(event_id)
+        results_mode = any(self._swimmer_has_result(swimmer) for swimmer in swimmers)
         return self._build_protocol_document(
-            page_title=event.name,
+            page_title=self.repo.get_meta("competition_title") or event.name,
             events=[(event.name, swimmers)],
-            final_mode=False,
+            final_mode=results_mode,
             sort_by=sort_by,
             sort_desc=sort_desc,
             group_by=group_by,
@@ -276,13 +277,12 @@ class MeetService:
         date = self.repo.get_meta("competition_date") or ""
         place = self.repo.get_meta("competition_place") or ""
         body: list[str] = [self._protocol_styles()]
-        body.append(f"<div class='doc-title'>{html.escape(page_title)}</div>")
+        doc_title = title if not final_mode else page_title
+        body.append(f"<div class='doc-title'>{html.escape(doc_title)}</div>")
         body.append("<table class='meta-table'>")
         body.append(f"<tr><td>{html.escape(date)}</td></tr>")
         body.append(f"<tr><td>{html.escape(place)}</td></tr>")
         body.append("</table>")
-        if not final_mode and title and title != page_title:
-            body.append(f"<div class='meet-line'>Соревнование: {html.escape(title)}</div>")
 
         for event_name, swimmers in events:
             groups = self._split_event_into_age_groups(event_name, swimmers)
@@ -322,6 +322,7 @@ class MeetService:
             ".num, .place, .year, .heat, .lane, .time { text-align: center; }"
             ".name { text-align: left; }"
             ".heat-label td { background: #f1f1f1; font-weight: 700; text-align: center; }"
+            ".heat-merged { vertical-align: middle; font-weight: 700; }"
             "</style>"
         )
 
@@ -446,7 +447,7 @@ class MeetService:
                     f"<td class='name'>{html.escape(swimmer.full_name)}</td>"
                     f"<td class='year'>{swimmer.birth_year or ''}</td>"
                     f"<td>{html.escape(swimmer.team or '')}</td>"
-                    f"<td class='time'>{html.escape(swimmer.result_time_raw or swimmer.seed_time_raw or '')}</td>"
+                    f"<td class='time'>{html.escape(self._display_swimmer_time(swimmer))}</td>"
                     f"<td class='place'>{places.get(swimmer.id, '')}</td>"
                     "</tr>"
                 )
@@ -454,13 +455,17 @@ class MeetService:
             parts.append("<tr><th class='heat'>Заплыв</th><th class='lane'>Дорожка</th><th>Ф. И.</th><th class='year'>Год рождения</th><th>Команда</th><th class='time'>Заявочное время</th></tr>")
             if grouped and group_by == "heat":
                 ordered = sorted(swimmers, key=lambda s: (s.heat is None, s.heat or 999, s.lane is None, s.lane or 999, s.full_name.lower()))
-                current_heat = object()
+                heat_sizes: dict[int | None, int] = {}
                 for swimmer in ordered:
-                    if swimmer.heat != current_heat:
-                        current_heat = swimmer.heat
+                    heat_sizes[swimmer.heat] = heat_sizes.get(swimmer.heat, 0) + 1
+                rendered_heats: set[int | None] = set()
+                for swimmer in ordered:
+                    parts.append("<tr>")
+                    if swimmer.heat not in rendered_heats:
+                        rendered_heats.add(swimmer.heat)
+                        rowspan = heat_sizes.get(swimmer.heat, 1)
+                        parts.append(f"<td class='heat heat-merged' rowspan='{rowspan}'>{swimmer.heat or ''}</td>")
                     parts.append(
-                        "<tr>"
-                        f"<td class='heat'>{swimmer.heat or ''}</td>"
                         f"<td class='lane'>{swimmer.lane or ''}</td>"
                         f"<td class='name'>{html.escape(swimmer.full_name)}</td>"
                         f"<td class='year'>{swimmer.birth_year or ''}</td>"
@@ -486,18 +491,28 @@ class MeetService:
 
     def _rank_swimmers(self, swimmers: list) -> tuple[list, dict[int, int]]:
         active = [s for s in swimmers if s.status != "DNS"]
-        ranked = sorted(active, key=lambda s: (s.result_time_cs is None, s.result_time_cs or 99999999, s.full_name.lower()))
+        ranked = sorted(active, key=lambda s: (self._ranking_time_cs(s) is None, self._ranking_time_cs(s) or 99999999, s.full_name.lower()))
         places: dict[int, int] = {}
         last_time_cs = None
         for idx, swimmer in enumerate(ranked, start=1):
-            if swimmer.result_time_cs is None:
+            current_time_cs = self._ranking_time_cs(swimmer)
+            if current_time_cs is None:
                 continue
-            if swimmer.result_time_cs != last_time_cs:
+            if current_time_cs != last_time_cs:
                 places[swimmer.id] = idx
-                last_time_cs = swimmer.result_time_cs
+                last_time_cs = current_time_cs
                 continue
             places[swimmer.id] = places[ranked[idx - 2].id]
         return ranked, places
+
+    def _ranking_time_cs(self, swimmer) -> int | None:
+        return swimmer.result_time_cs if swimmer.result_time_cs is not None else swimmer.seed_time_cs
+
+    def _display_swimmer_time(self, swimmer) -> str:
+        return swimmer.result_time_raw or swimmer.seed_time_raw or swimmer.result_mark or ""
+
+    def _swimmer_has_result(self, swimmer) -> bool:
+        return swimmer.result_time_cs is not None or bool((swimmer.result_mark or "").strip())
 
     def _sort_protocol_rows(self, swimmers: list, places: dict[int, int], sort_by: str, sort_desc: bool, final_mode: bool) -> list:
         def sort_key(s):
