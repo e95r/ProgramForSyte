@@ -308,3 +308,64 @@ def test_final_protocol_tie_places_skip_next_place(tmp_path: Path):
         assert "<td class='place'>4</td>" in html
     finally:
         service.close()
+
+
+def test_protocol_tables_use_fixed_layout_and_uniform_columns(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("100 брасс, мужчины")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "Очень Длинная Фамилия Имя", "heat": 1, "lane": 3, "birth_year": 2010, "team": "Очень длинное название команды", "seed_time_raw": "01:05:00"},
+            ],
+        )
+
+        html = service.build_event_protocol(event_id, grouped=False)
+
+        assert "table-layout: fixed" in html
+        assert "overflow-wrap: anywhere" in html
+        assert "<col class='col-heat'>" in html
+        assert "<col class='col-lane'>" in html
+        assert "<col class='col-name'>" in html
+        assert "<col class='col-team'>" in html
+        assert "<col class='col-time'>" in html
+    finally:
+        service.close()
+
+
+def test_export_final_protocol_to_excel_creates_uniform_sheet(tmp_path: Path):
+    from openpyxl import load_workbook
+
+    service = MeetService(tmp_path)
+    target = tmp_path / "final_protocol.xlsx"
+    try:
+        service.repo.set_meta("competition_title", "Кубок города")
+        service.repo.set_meta("competition_date", "23.03.2026")
+        service.repo.set_meta("competition_place", "Бассейн Олимп")
+        event_id = service.repo.upsert_event("50 вольный стиль, женщины")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "Анна Белова", "birth_year": 2011, "team": "Спартак", "result_time_raw": "00:30:00", "result_time_cs": 3000},
+                {"full_name": "Мария Иванова", "birth_year": 2012, "team": "Динамо", "result_time_raw": "00:31:00", "result_time_cs": 3100},
+            ],
+        )
+
+        service.export_final_protocol_xlsx(target, grouped=False)
+
+        wb = load_workbook(target)
+        ws = wb["Протокол"]
+        assert ws["A1"].value == "Итоговый протокол Кубок города"
+        assert ws["A2"].value == "23.03.2026"
+        assert ws["A3"].value == "Бассейн Олимп"
+        assert ws["A5"].value == "50 ВОЛЬНЫЙ СТИЛЬ, ЖЕНЩИНЫ"
+        assert ws["A6"].value == "№"
+        assert ws["B6"].value == "Фамилия Имя"
+        assert ws["F7"].value == 1
+        assert ws["F8"].value == 2
+        assert ws.column_dimensions["A"].width == 12
+        assert ws.column_dimensions["C"].width == 28
+        assert ws.row_dimensions[7].height == 30
+    finally:
+        service.close()

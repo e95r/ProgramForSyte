@@ -9,6 +9,9 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
 from core.db import MeetRepository
 from core.models import Secretary
 from core.reseeding import compress_lanes_within_heats, full_reseed
@@ -263,6 +266,52 @@ class MeetService:
             grouped=grouped,
         )
 
+    def export_event_protocol_xlsx(
+        self,
+        path: Path,
+        event_id: int,
+        grouped: bool = True,
+        sort_by: str = "place",
+        sort_desc: bool = False,
+        group_by: str = "heat",
+    ) -> None:
+        event = next(e for e in self.repo.list_events() if e.id == event_id)
+        swimmers = self.repo.list_swimmers(event_id)
+        results_mode = any(self._swimmer_has_result(swimmer) for swimmer in swimmers)
+        self._export_protocol_workbook(
+            path=path,
+            page_title=self.repo.get_meta("competition_title") or event.name,
+            events=[(event.name, swimmers)],
+            final_mode=results_mode,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            group_by=group_by,
+            grouped=grouped,
+        )
+
+    def export_final_protocol_xlsx(
+        self,
+        path: Path,
+        grouped: bool = True,
+        sort_by: str = "place",
+        sort_desc: bool = False,
+        group_by: str = "heat",
+    ) -> None:
+        events = []
+        for event in self.repo.list_events():
+            swimmers = self._filter_final_protocol_swimmers(self.repo.list_swimmers(event.id))
+            events.append((event.name, swimmers))
+        self._export_protocol_workbook(
+            path=path,
+            page_title=f"Итоговый протокол {self.repo.get_meta('competition_title') or 'соревнований'}",
+            events=events,
+            final_mode=True,
+            sort_by=sort_by,
+            sort_desc=sort_desc,
+            group_by=group_by,
+            grouped=grouped,
+        )
+
     def _build_protocol_document(
         self,
         page_title: str,
@@ -284,23 +333,8 @@ class MeetService:
         body.append(f"<tr><td>{html.escape(place)}</td></tr>")
         body.append("</table>")
 
-        for event_name, swimmers in events:
-            groups = self._split_event_into_age_groups(event_name, swimmers)
-            for group in groups:
-                body.append(
-                    self._build_age_group_table_html(
-                        event_name=event_name,
-                        swimmers=group["swimmers"],
-                        age_label=group["age_label"],
-                        gender_label=group["gender_label"],
-                        gender_color=group["gender_color"],
-                        final_mode=final_mode,
-                        sort_by=sort_by,
-                        sort_desc=sort_desc,
-                        group_by=group_by,
-                        grouped=grouped,
-                    )
-                )
+        for table in self._build_protocol_tables(events, final_mode, sort_by, sort_desc, group_by, grouped):
+            body.append(self._render_protocol_table_html(table))
         return "\n".join(body)
 
     def _protocol_styles(self) -> str:
@@ -312,8 +346,11 @@ class MeetService:
             ".meet-line { font-size: 16px; margin: 0 0 8px 0; }"
             ".meta-table { width: 100%; border-collapse: collapse; margin: 0 0 16px 0; }"
             ".meta-table td { border: 1px solid #cfcfcf; padding: 8px 10px; text-align: center; font-size: 16px; }"
-            ".protocol-table { width: 100%; border-collapse: collapse; margin: 0 0 18px 0; font-size: 14px; }"
-            ".protocol-table th, .protocol-table td { border: 1px solid #cfcfcf; padding: 6px 8px; }"
+            ".protocol-table { width: 100%; border-collapse: collapse; margin: 0 0 18px 0; font-size: 13px; table-layout: fixed; }"
+            ".protocol-table col.col-num, .protocol-table col.col-heat, .protocol-table col.col-lane, .protocol-table col.col-year, .protocol-table col.col-time, .protocol-table col.col-place { width: 12%; }"
+            ".protocol-table col.col-name { width: 28%; }"
+            ".protocol-table col.col-team { width: 24%; }"
+            ".protocol-table th, .protocol-table td { border: 1px solid #cfcfcf; padding: 6px 8px; vertical-align: middle; overflow-wrap: anywhere; word-break: break-word; }"
             ".protocol-table th { text-align: left; }"
             ".category-title { color: #fff; text-align: center; font-weight: 700; font-size: 18px; text-transform: uppercase; padding: 12px 8px; }"
             ".category-title.boys { background: #5b9bd5; }"
@@ -415,7 +452,36 @@ class MeetService:
         base_name, _ = self._parse_event_name(event_name)
         return base_name
 
-    def _build_age_group_table_html(
+    def _build_protocol_tables(
+        self,
+        events: list[tuple[str, list]],
+        final_mode: bool,
+        sort_by: str,
+        sort_desc: bool,
+        group_by: str,
+        grouped: bool,
+    ) -> list[dict]:
+        tables: list[dict] = []
+        for event_name, swimmers in events:
+            groups = self._split_event_into_age_groups(event_name, swimmers)
+            for group in groups:
+                tables.append(
+                    self._build_age_group_table_data(
+                        event_name=event_name,
+                        swimmers=group["swimmers"],
+                        age_label=group["age_label"],
+                        gender_label=group["gender_label"],
+                        gender_color=group["gender_color"],
+                        final_mode=final_mode,
+                        sort_by=sort_by,
+                        sort_desc=sort_desc,
+                        group_by=group_by,
+                        grouped=grouped,
+                    )
+                )
+        return tables
+
+    def _build_age_group_table_data(
         self,
         event_name: str,
         swimmers: list,
@@ -435,24 +501,37 @@ class MeetService:
         elif age_label != "Все возраста":
             title_parts.append(age_label)
         title = ", ".join(title_parts).upper()
-        parts = ["<table class='protocol-table'>"]
-        parts.append(f"<tr><td class='category-title {gender_color}' colspan='6'>{html.escape(title)}</td></tr>")
         if final_mode:
-            parts.append("<tr><th class='num'>№</th><th>Фамилия Имя</th><th class='year'>Год рождения</th><th>Команда</th><th class='time'>Время</th><th class='place'>Место</th></tr>")
+            headers = [
+                {"label": "№", "class": "num"},
+                {"label": "Фамилия Имя", "class": "name"},
+                {"label": "Год рождения", "class": "year"},
+                {"label": "Команда", "class": "team"},
+                {"label": "Время", "class": "time"},
+                {"label": "Место", "class": "place"},
+            ]
             ordered = self._sort_protocol_rows(swimmers, places, sort_by, sort_desc, final_mode=True)
-            for index, swimmer in enumerate(ordered, start=1):
-                parts.append(
-                    "<tr>"
-                    f"<td class='num'>{index}</td>"
-                    f"<td class='name'>{html.escape(swimmer.full_name)}</td>"
-                    f"<td class='year'>{swimmer.birth_year or ''}</td>"
-                    f"<td>{html.escape(swimmer.team or '')}</td>"
-                    f"<td class='time'>{html.escape(self._display_swimmer_time(swimmer))}</td>"
-                    f"<td class='place'>{places.get(swimmer.id, '')}</td>"
-                    "</tr>"
-                )
+            rows = [
+                [
+                    {"value": index, "class": "num"},
+                    {"value": swimmer.full_name, "class": "name"},
+                    {"value": swimmer.birth_year or "", "class": "year"},
+                    {"value": swimmer.team or "", "class": "team"},
+                    {"value": self._display_swimmer_time(swimmer), "class": "time"},
+                    {"value": places.get(swimmer.id, ""), "class": "place"},
+                ]
+                for index, swimmer in enumerate(ordered, start=1)
+            ]
         else:
-            parts.append("<tr><th class='heat'>Заплыв</th><th class='lane'>Дорожка</th><th>Ф. И.</th><th class='year'>Год рождения</th><th>Команда</th><th class='time'>Заявочное время</th></tr>")
+            headers = [
+                {"label": "Заплыв", "class": "heat"},
+                {"label": "Дорожка", "class": "lane"},
+                {"label": "Ф. И.", "class": "name"},
+                {"label": "Год рождения", "class": "year"},
+                {"label": "Команда", "class": "team"},
+                {"label": "Заявочное время", "class": "time"},
+            ]
+            rows = []
             if grouped and group_by == "heat":
                 ordered = sorted(swimmers, key=lambda s: (s.heat is None, s.heat or 999, s.lane is None, s.lane or 999, s.full_name.lower()))
                 heat_sizes: dict[int | None, int] = {}
@@ -460,34 +539,139 @@ class MeetService:
                     heat_sizes[swimmer.heat] = heat_sizes.get(swimmer.heat, 0) + 1
                 rendered_heats: set[int | None] = set()
                 for swimmer in ordered:
-                    parts.append("<tr>")
+                    row = []
                     if swimmer.heat not in rendered_heats:
                         rendered_heats.add(swimmer.heat)
-                        rowspan = heat_sizes.get(swimmer.heat, 1)
-                        parts.append(f"<td class='heat heat-merged' rowspan='{rowspan}'>{swimmer.heat or ''}</td>")
-                    parts.append(
-                        f"<td class='lane'>{swimmer.lane or ''}</td>"
-                        f"<td class='name'>{html.escape(swimmer.full_name)}</td>"
-                        f"<td class='year'>{swimmer.birth_year or ''}</td>"
-                        f"<td>{html.escape(swimmer.team or '')}</td>"
-                        f"<td class='time'>{html.escape(swimmer.seed_time_raw or '')}</td>"
-                        "</tr>"
+                        row.append(
+                            {"value": swimmer.heat or "", "class": "heat heat-merged", "rowspan": heat_sizes.get(swimmer.heat, 1)}
+                        )
+                    row.extend(
+                        [
+                            {"value": swimmer.lane or "", "class": "lane"},
+                            {"value": swimmer.full_name, "class": "name"},
+                            {"value": swimmer.birth_year or "", "class": "year"},
+                            {"value": swimmer.team or "", "class": "team"},
+                            {"value": swimmer.seed_time_raw or "", "class": "time"},
+                        ]
                     )
+                    rows.append(row)
             else:
                 ordered = self._sort_protocol_rows(swimmers, places, sort_by, sort_desc, final_mode=False)
                 for swimmer in ordered:
-                    parts.append(
-                        "<tr>"
-                        f"<td class='heat'>{swimmer.heat or ''}</td>"
-                        f"<td class='lane'>{swimmer.lane or ''}</td>"
-                        f"<td class='name'>{html.escape(swimmer.full_name)}</td>"
-                        f"<td class='year'>{swimmer.birth_year or ''}</td>"
-                        f"<td>{html.escape(swimmer.team or '')}</td>"
-                        f"<td class='time'>{html.escape(swimmer.seed_time_raw or '')}</td>"
-                        "</tr>"
+                    rows.append(
+                        [
+                            {"value": swimmer.heat or "", "class": "heat"},
+                            {"value": swimmer.lane or "", "class": "lane"},
+                            {"value": swimmer.full_name, "class": "name"},
+                            {"value": swimmer.birth_year or "", "class": "year"},
+                            {"value": swimmer.team or "", "class": "team"},
+                            {"value": swimmer.seed_time_raw or "", "class": "time"},
+                        ]
                     )
+        return {"title": title, "gender_color": gender_color, "headers": headers, "rows": rows}
+
+    def _render_protocol_table_html(self, table: dict) -> str:
+        parts = ["<table class='protocol-table'>", "<colgroup>"]
+        for header in table["headers"]:
+            parts.append(f"<col class='col-{header['class'].split()[0]}'>")
+        parts.append("</colgroup>")
+        parts.append(
+            f"<tr><td class='category-title {table['gender_color']}' colspan='{len(table['headers'])}'>{html.escape(table['title'])}</td></tr>"
+        )
+        parts.append("<tr>")
+        for header in table["headers"]:
+            parts.append(f"<th class='{header['class']}'>{html.escape(str(header['label']))}</th>")
+        parts.append("</tr>")
+        for row in table["rows"]:
+            parts.append("<tr>")
+            for cell in row:
+                rowspan = f" rowspan='{cell['rowspan']}'" if cell.get("rowspan") else ""
+                parts.append(f"<td class='{cell['class']}'{rowspan}>{html.escape(str(cell['value']))}</td>")
+            parts.append("</tr>")
         parts.append("</table>")
         return "".join(parts)
+
+    def _export_protocol_workbook(
+        self,
+        path: Path,
+        page_title: str,
+        events: list[tuple[str, list]],
+        final_mode: bool,
+        sort_by: str,
+        sort_desc: bool,
+        group_by: str,
+        grouped: bool,
+    ) -> None:
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Протокол"
+
+        title = self.repo.get_meta("competition_title") or "Итоговый протокол соревнований"
+        doc_title = title if not final_mode else page_title
+        date = self.repo.get_meta("competition_date") or ""
+        place = self.repo.get_meta("competition_place") or ""
+        tables = self._build_protocol_tables(events, final_mode, sort_by, sort_desc, group_by, grouped)
+
+        border = Border(
+            left=Side(style="thin", color="CFCFCF"),
+            right=Side(style="thin", color="CFCFCF"),
+            top=Side(style="thin", color="CFCFCF"),
+            bottom=Side(style="thin", color="CFCFCF"),
+        )
+        centered = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        left_wrapped = Alignment(horizontal="left", vertical="center", wrap_text=True)
+        fills = {"boys": "5B9BD5", "girls": "E06666", "mixed": "808080"}
+        column_widths = [12, 12, 28, 14, 24, 14]
+        for idx, width in enumerate(column_widths, start=1):
+            sheet.column_dimensions[chr(64 + idx)].width = width
+
+        row = 1
+        sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+        title_cell = sheet.cell(row=row, column=1, value=doc_title)
+        title_cell.font = Font(size=16, bold=True)
+        title_cell.alignment = centered
+        row += 1
+        for meta_value in (date, place):
+            sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+            cell = sheet.cell(row=row, column=1, value=meta_value)
+            cell.border = border
+            cell.alignment = centered
+            row += 1
+        row += 1
+
+        for table in tables:
+            sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+            cell = sheet.cell(row=row, column=1, value=table["title"])
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill(fill_type="solid", fgColor=fills[table["gender_color"]])
+            cell.alignment = centered
+            cell.border = border
+            sheet.row_dimensions[row].height = 24
+            row += 1
+
+            for column, header in enumerate(table["headers"], start=1):
+                cell = sheet.cell(row=row, column=column, value=header["label"])
+                cell.font = Font(bold=True)
+                cell.border = border
+                cell.alignment = centered if header["class"] not in {"name", "team"} else left_wrapped
+            sheet.row_dimensions[row].height = 24
+            row += 1
+
+            for data_row in table["rows"]:
+                column = len(table["headers"]) - len(data_row) + 1
+                for data_cell in data_row:
+                    rowspan = int(data_cell.get("rowspan", 1))
+                    if rowspan > 1:
+                        sheet.merge_cells(start_row=row, start_column=column, end_row=row + rowspan - 1, end_column=column)
+                    cell = sheet.cell(row=row, column=column, value=data_cell["value"])
+                    cell.border = border
+                    cell.alignment = centered if data_cell["class"].split()[0] in {"num", "heat", "lane", "year", "time", "place"} else left_wrapped
+                    column += 1
+                sheet.row_dimensions[row].height = 30
+                row += 1
+            row += 1
+
+        workbook.save(path)
 
     def _rank_swimmers(self, swimmers: list) -> tuple[list, dict[int, int]]:
         active = [s for s in swimmers if s.status != "DNS"]

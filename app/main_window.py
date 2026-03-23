@@ -500,6 +500,14 @@ class MainWindow(QMainWindow):
                 sort_desc=sort_desc,
                 group_by=group_by,
             ),
+            export_xlsx=lambda path, grouped, sort_by, sort_desc, group_by: self.service.export_event_protocol_xlsx(
+                Path(path),
+                event_id,
+                grouped=grouped,
+                sort_by=sort_by,
+                sort_desc=sort_desc,
+                group_by=group_by,
+            ),
             allow_sorting=True,
             self_parent=self,
         )
@@ -510,6 +518,13 @@ class MainWindow(QMainWindow):
             self.service,
             title="Итоговый протокол соревнований",
             build_html=lambda grouped, sort_by, sort_desc, group_by: self.service.build_final_protocol(
+                grouped=grouped,
+                sort_by=sort_by,
+                sort_desc=sort_desc,
+                group_by=group_by,
+            ),
+            export_xlsx=lambda path, grouped, sort_by, sort_desc, group_by: self.service.export_final_protocol_xlsx(
+                Path(path),
                 grouped=grouped,
                 sort_by=sort_by,
                 sort_desc=sort_desc,
@@ -781,12 +796,14 @@ class ProtocolDialog(QDialog):
         service: MeetService,
         title: str,
         build_html,
+        export_xlsx,
         allow_sorting: bool = False,
         self_parent: QWidget | None = None,
     ):
         super().__init__(self_parent)
         self.service = service
         self.build_html = build_html
+        self.export_xlsx = export_xlsx
         self.allow_sorting = allow_sorting
         self.setWindowTitle(title)
         self.resize(1000, 700)
@@ -870,14 +887,14 @@ class ProtocolDialog(QDialog):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             doc = QTextDocument()
             doc.setHtml(self.current_html())
-            doc.print(printer)
+            doc.print_(printer)
 
     def save_protocol(self) -> None:
         path, selected_filter = QFileDialog.getSaveFileName(
             self,
             "Сохранить протокол",
             str(Path.home() / "protocol.pdf"),
-            "PDF (*.pdf);;HTML (*.html);;Text (*.txt)",
+            "PDF (*.pdf);;Excel (*.xlsx);;HTML (*.html);;Text (*.txt)",
         )
         if not path:
             return
@@ -891,7 +908,14 @@ class ProtocolDialog(QDialog):
             printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
             doc = QTextDocument()
             doc.setHtml(self.current_html())
-            doc.print(printer)
+            doc.print_(printer)
+        elif selected_filter.startswith("Excel") or path.lower().endswith(".xlsx"):
+            if not path.lower().endswith(".xlsx"):
+                path = f"{path}.xlsx"
+            group_mode = self.group_mode_combo.currentData()
+            grouped = group_mode != "none"
+            sort_by = self.sort_combo.currentData()
+            self.export_xlsx(path, grouped, sort_by, self.sort_desc, group_mode)
         else:
             text = self.current_html()
             Path(path).write_text(text, encoding="utf-8")
