@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QSizeF, Qt
-from PySide6.QtGui import QFont, QPageSize, QTextDocument
+from PySide6.QtGui import QFont, QPageLayout, QPageSize, QTextDocument
 from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -887,7 +887,7 @@ class ProtocolDialog(QDialog):
         return doc
 
     def _configure_document_for_printer(self, doc: QTextDocument, printer: QPrinter) -> None:
-        page_rect = printer.pageLayout().paintRectPixels(printer.resolution())
+        page_rect = printer.pageLayout().paintRect(QPageLayout.Unit.Point)
         doc.setPageSize(QSizeF(page_rect.width(), page_rect.height()))
 
     def print_protocol(self) -> None:
