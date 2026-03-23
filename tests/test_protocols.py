@@ -26,7 +26,8 @@ def test_event_protocol_uses_start_heats_and_lanes(tmp_path: Path):
         assert "Донской, Тульская область" in html
         assert "100 БРАСС, МУЖЧИНЫ" in html
         assert "100 БРАСС, МУЖЧИНЫ, ВСЕ ВОЗРАСТА" not in html
-        assert "rowspan='2'>1</td>" in html
+        assert ">Заплыв<" not in html
+        assert "rowspan='2'>1</td>" not in html
         assert "<td class='lane'>1</td>" in html
         assert "<td class='lane'>2</td>" in html
         assert "Соревнование:" not in html
@@ -350,10 +351,11 @@ def test_event_protocol_grouped_by_heat_can_be_exported_to_excel(tmp_path: Path)
         assert target.exists()
         wb = load_workbook(target)
         ws = wb.active
-        assert "A7:A8" in {str(range_ref) for range_ref in ws.merged_cells.ranges}
-        assert ws["A7"].value == 1
-        assert ws["B8"].value == 4
-        assert ws["C8"].value == "Иванов Иван"
+        assert "A7:A8" not in {str(range_ref) for range_ref in ws.merged_cells.ranges}
+        assert ws["A6"].value == "Дорожка"
+        assert ws["A7"].value == 3
+        assert ws["A8"].value == 4
+        assert ws["B8"].value == "Иванов Иван"
     finally:
         service.close()
 
