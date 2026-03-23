@@ -870,7 +870,7 @@ class ProtocolDialog(QDialog):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             doc = QTextDocument()
             doc.setHtml(self.current_html())
-            doc.print(printer)
+            doc.print_(printer)
 
     def save_protocol(self) -> None:
         path, selected_filter = QFileDialog.getSaveFileName(
@@ -891,7 +891,7 @@ class ProtocolDialog(QDialog):
             printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
             doc = QTextDocument()
             doc.setHtml(self.current_html())
-            doc.print(printer)
+            doc.print_(printer)
         else:
             text = self.current_html()
             Path(path).write_text(text, encoding="utf-8")
