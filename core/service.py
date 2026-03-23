@@ -19,6 +19,7 @@ EVENT_NAME_PARTS_RE = re.compile(
     r"^\s*(?P<base>.+?)(?:\s*,\s*(?P<gender>женщины|девушки|девочки|мужчины|юноши|мальчики|все))?(?:\s+(?P<age>все))?\s*$",
     re.IGNORECASE,
 )
+TRAILING_ALL_RE = re.compile(r"^(?P<title>.+?)(?:\s*,)?\s+все\s*$", re.IGNORECASE)
 
 
 class MeetService:
@@ -117,8 +118,9 @@ class MeetService:
         self.repo.set_meta("age_groups", json.dumps(metadata.get("age_groups") or [], ensure_ascii=False))
         self.repo.set_meta("relay_age_groups", json.dumps(metadata.get("relay_age_groups") or [], ensure_ascii=False))
         for event_name, swimmers in imported.items():
+            normalized_event_name = self._normalize_imported_event_name(event_name)
             lanes_count = self._infer_imported_lanes_count(swimmers)
-            event_id = self.repo.upsert_event(event_name, lanes_count=lanes_count)
+            event_id = self.repo.upsert_event(normalized_event_name, lanes_count=lanes_count)
             swimmers = self._normalize_imported_start_protocol(swimmers, lanes_count=lanes_count)
             self.repo.add_swimmers(event_id, swimmers)
         self.repo.log("import_excel", str(excel_path))
@@ -127,6 +129,14 @@ class MeetService:
         raw_title = excel_path.stem.replace("_", " ").replace("-", " ")
         normalized = " ".join(raw_title.split())
         return normalized or "Итоговый протокол соревнований"
+
+    def _normalize_imported_event_name(self, event_name: str) -> str:
+        normalized = " ".join(event_name.split()).strip(" ,")
+        match = TRAILING_ALL_RE.match(normalized)
+        if match:
+            normalized = match.group("title").strip(" ,")
+        return normalized or event_name.strip()
+
 
     def _infer_imported_lanes_count(self, swimmers: list[dict], default: int = 8) -> int:
         lanes = [int(lane) for lane in (s.get("lane") for s in swimmers) if isinstance(lane, int) and lane > 0]
