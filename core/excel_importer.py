@@ -22,6 +22,10 @@ EVENT_TITLE_RE = re.compile(
 )
 AGE_GROUP_LINE_RE = re.compile(r"^\s*Группа\s*(\d+)\s*[—\-:]\s*(.+?)\s*$", re.IGNORECASE)
 YEAR_RE = re.compile(r"(19\d{2}|20\d{2})")
+EVENT_CONTEXT_STOP_RE = re.compile(
+    r"^\s*(?:соревнование:|дата проведения:|место проведения:|возрастные группы:?|эстафет)",
+    re.IGNORECASE,
+)
 
 
 class ExcelImportError(ValueError):
@@ -93,6 +97,32 @@ def _extract_event_title(row: tuple[object, ...], fallback: str) -> str:
     values = _row_non_empty_values(row)
     if len(values) == 1:
         return str(values[0]).strip()
+    return fallback
+
+
+def _find_event_title_near_header(rows: list[tuple[object, ...]], header_idx: int, fallback: str) -> str:
+    """Find the nearest single-cell title directly above a swimmer header block."""
+
+    for idx in range(header_idx - 1, -1, -1):
+        row = rows[idx]
+        values = _row_non_empty_values(row)
+        if not values:
+            break
+        if _looks_like_header_row(row):
+            break
+        if len(values) != 1:
+            continue
+
+        candidate = str(values[0]).strip()
+        if not candidate:
+            continue
+        if EVENT_CONTEXT_STOP_RE.match(candidate):
+            break
+        if AGE_GROUP_LINE_RE.match(candidate):
+            continue
+        if YEAR_RE.fullmatch(candidate.replace(".", "").replace("-", "")):
+            continue
+        return candidate
     return fallback
 
 
@@ -311,7 +341,7 @@ def import_excel(path: Path) -> dict[str, list[dict]]:
 
             swimmers = _parse_swimmers(rows, idx + 1, cols)
             if swimmers:
-                event_title = pending_event_title or ws.title
+                event_title = _find_event_title_near_header(rows, idx, pending_event_title or ws.title)
                 suffix = 2
                 original_title = event_title
                 while event_title in result:
