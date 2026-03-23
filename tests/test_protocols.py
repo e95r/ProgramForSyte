@@ -22,7 +22,8 @@ def test_event_protocol_uses_start_heats_and_lanes(tmp_path: Path):
         assert "Открытый турнир по плаванию «АКВАДОН»" in html
         assert "25.04.2026" in html
         assert "Донской, Тульская область" in html
-        assert "100 БРАСС ЮНОШИ, ВСЕ ВОЗРАСТА" in html
+        assert "100 БРАСС, МУЖЧИНЫ" in html
+        assert "100 БРАСС, МУЖЧИНЫ, ВСЕ ВОЗРАСТА" not in html
         assert "<td class='heat'>1</td>" in html
         assert "<td class='lane'>2</td>" in html
         assert "<td class='heat'>2</td>" in html
@@ -137,8 +138,8 @@ def test_final_protocol_contains_all_events_and_metadata(tmp_path: Path):
         assert "Итоговый протокол открытого турнира по плаванию &quot;АКВАДОН&quot;" in html
         assert "20 декабря 2025" in html
         assert "Тульская обл. г.Донской МБУ ДСК" in html
-        assert "50M ВСЕ, ВСЕ ВОЗРАСТА" in html
-        assert "100M ВСЕ, ВСЕ ВОЗРАСТА" in html
+        assert "50M, ВСЕ, ВСЕ ВОЗРАСТА" in html
+        assert "100M, ВСЕ, ВСЕ ВОЗРАСТА" in html
         assert "size: A4" in html
     finally:
         service.close()
@@ -185,11 +186,30 @@ def test_final_protocol_splits_by_age_groups_and_colors_by_gender(tmp_path: Path
         )
 
         html = service.build_final_protocol()
-        assert "100 КОМПЛЕКСНОЕ ПЛАВАНИЕ ЮНОШИ, 2010 И СТАРШЕ" in html
-        assert "100 КОМПЛЕКСНОЕ ПЛАВАНИЕ ЮНОШИ, 2011-2012" in html
-        assert "100 КОМПЛЕКСНОЕ ПЛАВАНИЕ ЮНОШИ, 2013-2014" in html
+        assert "100 КОМПЛЕКСНОЕ ПЛАВАНИЕ, МУЖЧИНЫ, 2010 И СТАРШЕ" in html
+        assert "100 КОМПЛЕКСНОЕ ПЛАВАНИЕ, МУЖЧИНЫ, 2011-2012" in html
+        assert "100 КОМПЛЕКСНОЕ ПЛАВАНИЕ, МУЖЧИНЫ, 2013-2014" in html
         assert "category-title boys" in html
         assert html.count("<table class='protocol-table'>") == 3
+    finally:
+        service.close()
+
+
+def test_event_protocol_uses_women_gender_title_without_all_ages_suffix(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("100 брасс, женщины все")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "A", "heat": 1, "lane": 1, "birth_year": 2012, "team": "Team", "seed_time_raw": "00:33:00", "seed_time_cs": 3300},
+            ],
+        )
+
+        html = service.build_event_protocol(event_id, grouped=True)
+
+        assert "100 БРАСС, ЖЕНЩИНЫ" in html
+        assert "100 БРАСС, ЖЕНЩИНЫ, ВСЕ ВОЗРАСТА" not in html
     finally:
         service.close()
 

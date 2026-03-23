@@ -15,8 +15,8 @@ from core.reseeding import compress_lanes_within_heats, full_reseed
 from core.time_utils import parse_seed_time_to_cs
 
 
-TITLE_GENDER_SUFFIX_RE = re.compile(
-    r"\s*,\s*(женщины|девушки|девочки|мужчины|юноши|мальчики)\s+все\s*$",
+EVENT_NAME_PARTS_RE = re.compile(
+    r"^\s*(?P<base>.+?)(?:\s*,\s*(?P<gender>женщины|девушки|девочки|мужчины|юноши|мальчики|все))?(?:\s+(?P<age>все))?\s*$",
     re.IGNORECASE,
 )
 
@@ -374,16 +374,35 @@ class MeetService:
             return False
         return True
 
+    def _parse_event_name(self, event_name: str) -> tuple[str, str]:
+        normalized = " ".join(event_name.split())
+        match = EVENT_NAME_PARTS_RE.match(normalized)
+        if not match:
+            return event_name.strip(), "Все"
+
+        base_name = (match.group("base") or "").strip(" ,") or event_name.strip()
+        gender_token = (match.group("gender") or "").lower()
+        age_token = (match.group("age") or "").lower()
+
+        if gender_token in {"женщины", "девушки", "девочки"}:
+            return base_name, "Женщины"
+        if gender_token in {"мужчины", "юноши", "мальчики"}:
+            return base_name, "Мужчины"
+        if gender_token == "все" or age_token == "все":
+            return base_name, "Все"
+        return base_name, "Все"
+
     def _detect_gender(self, event_name: str) -> tuple[str, str]:
-        lowered = event_name.lower()
-        if any(token in lowered for token in ("женщ", "девуш", "девоч")):
-            return "Девушки", "girls"
-        if any(token in lowered for token in ("мужч", "юнош", "мальч")):
-            return "Юноши", "boys"
-        return "Все", "mixed"
+        _, gender_label = self._parse_event_name(event_name)
+        if gender_label == "Женщины":
+            return gender_label, "girls"
+        if gender_label == "Мужчины":
+            return gender_label, "boys"
+        return gender_label, "mixed"
 
     def _base_event_name(self, event_name: str) -> str:
-        return TITLE_GENDER_SUFFIX_RE.sub("", event_name).strip(" ,") or event_name.strip()
+        base_name, _ = self._parse_event_name(event_name)
+        return base_name
 
     def _build_age_group_table_html(
         self,
@@ -399,7 +418,12 @@ class MeetService:
         grouped: bool,
     ) -> str:
         ranked, places = self._rank_swimmers(swimmers)
-        title = f"{self._base_event_name(event_name)} {gender_label}, {age_label}".upper()
+        title_parts = [self._base_event_name(event_name), gender_label]
+        if gender_label == "Все":
+            title_parts.append(age_label)
+        elif age_label != "Все возраста":
+            title_parts.append(age_label)
+        title = ", ".join(title_parts).upper()
         parts = ["<table class='protocol-table'>"]
         parts.append(f"<tr><td class='category-title {gender_color}' colspan='6'>{html.escape(title)}</td></tr>")
         if final_mode:
