@@ -53,6 +53,28 @@ def test_import_startlist_keeps_combined_heat_and_lane_from_excel(tmp_path: Path
         service.close()
 
 
+def test_import_startlist_removes_trailing_all_from_gender_event_titles(tmp_path: Path):
+    from openpyxl import Workbook
+
+    source = tmp_path / "gendered-source.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Старт"
+    ws.append(["Турнир"])
+    ws.append(["100 брасс, женщины все"])
+    ws.append(["Заплыв", "Дорожка", "Ф. И.", "Год рождения", "Команда", "Заявочное время"])
+    ws.append([1, 3, "Белова Екатерина", 2010, "Team", "00:40:00"])
+    wb.save(source)
+
+    service = MeetService(tmp_path)
+    try:
+        service.import_startlist(source)
+        event = service.repo.list_events()[0]
+        assert event.name == "100 брасс, женщины"
+    finally:
+        service.close()
+
+
 def test_import_startlist_keeps_grouped_protocol_heats_and_lanes(tmp_path: Path):
     from openpyxl import Workbook
 
@@ -72,7 +94,7 @@ def test_import_startlist_keeps_grouped_protocol_heats_and_lanes(tmp_path: Path)
         service.import_startlist(source)
         event = service.repo.list_events()[0]
         swimmers = service.repo.list_swimmers(event.id)
-        assert event.name == "100 — Брасс все"
+        assert event.name == "100 — Брасс"
         assert [(s.full_name, s.heat, s.lane) for s in swimmers] == [("Slow", 2, 3), ("Fast", 2, 4)]
     finally:
         service.close()
