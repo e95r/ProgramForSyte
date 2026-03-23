@@ -596,6 +596,7 @@ class MeetService:
                         rendered_heats: set[int | None] = set()
                         for swimmer in ordered:
                             start_row = row
+                            is_first_heat_row = swimmer.heat not in rendered_heats
                             values = [
                                 swimmer.heat or "",
                                 swimmer.lane or "",
@@ -605,18 +606,18 @@ class MeetService:
                                 swimmer.seed_time_raw or "",
                             ]
                             for column, value in enumerate(values, start=1):
+                                if column == 1 and not is_first_heat_row:
+                                    continue
                                 body_cell = ws.cell(row=row, column=column, value=value)
                                 body_cell.font = body_font
                                 body_cell.alignment = left if column in {3, 5} else center
                                 body_cell.border = border
-                            if swimmer.heat not in rendered_heats:
+                            if is_first_heat_row:
                                 rendered_heats.add(swimmer.heat)
                                 rowspan = heat_sizes.get(swimmer.heat, 1)
                                 if rowspan > 1:
                                     ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row + rowspan - 1, end_column=1)
                                 ws.cell(row=start_row, column=1).alignment = center
-                            else:
-                                ws.cell(row=row, column=1, value=None)
                             row += 1
                     else:
                         ordered = self._sort_protocol_rows(group["swimmers"], places, sort_by, sort_desc, final_mode=False)

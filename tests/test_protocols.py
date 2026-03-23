@@ -326,6 +326,38 @@ def test_final_protocol_wraps_content_to_a4_width_and_uses_fixed_table_columns(t
         service.close()
 
 
+
+
+def test_event_protocol_grouped_by_heat_can_be_exported_to_excel(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        service.repo.set_meta("competition_title", 'Открытый турнир по плаванию «АКВАДОН»')
+        service.repo.set_meta("competition_date", "25.04.2026")
+        service.repo.set_meta("competition_place", "Донской, Тульская область")
+        event_id = service.repo.upsert_event("100 брасс, мужчины все")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "Андреев Андрей", "heat": 1, "lane": 3, "birth_year": 2008, "team": "Команда 1", "seed_time_raw": "01:01:01", "seed_time_cs": 6101},
+                {"full_name": "Иванов Иван", "heat": 1, "lane": 4, "birth_year": 2010, "team": "Команда 2", "seed_time_raw": "01:02:02", "seed_time_cs": 6202},
+            ],
+        )
+
+        target = tmp_path / "event-protocol.xlsx"
+        saved = service.export_event_protocol_excel(target, event_id, grouped=True, group_by="heat")
+
+        assert saved == target
+        assert target.exists()
+        wb = load_workbook(target)
+        ws = wb.active
+        assert "A7:A8" in {str(range_ref) for range_ref in ws.merged_cells.ranges}
+        assert ws["A7"].value == 1
+        assert ws["B8"].value == 4
+        assert ws["C8"].value == "Иванов Иван"
+    finally:
+        service.close()
+
+
 def test_final_protocol_can_be_exported_to_excel_with_a4_setup(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
