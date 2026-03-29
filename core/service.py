@@ -481,6 +481,48 @@ class MeetService:
             show_heat_column=False,
         )
 
+    @staticmethod
+    def _cell_text_length(value: object) -> int:
+        if value is None:
+            return 0
+        text = str(value).strip()
+        if not text:
+            return 0
+        return max(len(part) for part in text.splitlines())
+
+    def _autosize_protocol_columns(self, ws, headers: list[str], content_lengths: list[int], *, final_mode: bool, show_heat_column: bool) -> None:
+        if final_mode:
+            limits = [
+                (4, 8),   # №
+                (18, 36), # Фамилия Имя
+                (10, 14), # Год рождения
+                (18, 34), # Команда
+                (10, 14), # Время
+                (6, 10),  # Место
+            ]
+        elif show_heat_column:
+            limits = [
+                (6, 10),  # Заплыв
+                (6, 10),  # Дорожка
+                (18, 36), # Ф. И.
+                (10, 14), # Год рождения
+                (18, 34), # Команда
+                (10, 16), # Заявочное время
+            ]
+        else:
+            limits = [
+                (6, 10),  # Дорожка
+                (18, 36), # Ф. И.
+                (10, 14), # Год рождения
+                (18, 34), # Команда
+                (10, 16), # Заявочное время
+            ]
+
+        for index, (header, max_len, (min_width, max_width)) in enumerate(zip(headers, content_lengths, limits), start=1):
+            basis = max(max_len, self._cell_text_length(header))
+            computed_width = basis * 1.1 + 2
+            ws.column_dimensions[get_column_letter(index)].width = max(min_width, min(max_width, computed_width))
+
     def _export_protocol_workbook(
         self,
         path: Path,
@@ -506,10 +548,7 @@ class MeetService:
         ws.page_margins.bottom = 0.5
         ws.sheet_view.showGridLines = False
 
-        column_widths = [10, 10, 28, 14, 24, 12] if final_mode or show_heat_column else [10, 28, 14, 24, 12]
-        total_columns = len(column_widths)
-        for index, width in enumerate(column_widths, start=1):
-            ws.column_dimensions[get_column_letter(index)].width = width
+        total_columns = 6 if (final_mode or show_heat_column) else 5
 
         thin = Side(style="thin", color="CFCFCF")
         border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -571,6 +610,7 @@ class MeetService:
                         else ["Дорожка", "Ф. И.", "Год рождения", "Команда", "Заявочное время"]
                     )
                 )
+                content_lengths = [self._cell_text_length(value) for value in headers]
                 for column, value in enumerate(headers, start=1):
                     header_cell = ws.cell(row=row, column=column, value=value)
                     header_cell.font = table_header_font
@@ -595,6 +635,7 @@ class MeetService:
                             body_cell.font = body_font
                             body_cell.alignment = left if column in {2, 4} else center
                             body_cell.border = border
+                            content_lengths[column - 1] = max(content_lengths[column - 1], self._cell_text_length(value))
                         row += 1
                 else:
                     if grouped and group_by == "heat" and show_heat_column:
@@ -624,6 +665,7 @@ class MeetService:
                                 body_cell.font = body_font
                                 body_cell.alignment = left if column in {3, 5} else center
                                 body_cell.border = border
+                                content_lengths[column - 1] = max(content_lengths[column - 1], self._cell_text_length(value))
                             if is_first_heat_row:
                                 rendered_heats.add(swimmer.heat)
                                 rowspan = heat_sizes.get(swimmer.heat, 1)
@@ -659,7 +701,15 @@ class MeetService:
                                     left if column in ({3, 5} if show_heat_column else {2, 4}) else center
                                 )
                                 body_cell.border = border
+                                content_lengths[column - 1] = max(content_lengths[column - 1], self._cell_text_length(value))
                             row += 1
+                self._autosize_protocol_columns(
+                    ws,
+                    headers,
+                    content_lengths,
+                    final_mode=final_mode,
+                    show_heat_column=show_heat_column,
+                )
                 row += 1
 
         output_path = Path(path)
