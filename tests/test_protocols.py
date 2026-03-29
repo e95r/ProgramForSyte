@@ -192,6 +192,26 @@ def test_final_protocol_excludes_dns_and_dq(tmp_path: Path):
         service.close()
 
 
+def test_final_protocol_uses_only_result_time_not_seed_time(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("200m")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "WithResult", "seed_time_raw": "00:40:00", "seed_time_cs": 4000, "result_time_raw": "00:38:50", "result_time_cs": 3850},
+                {"full_name": "NoResult", "seed_time_raw": "00:41:00", "seed_time_cs": 4100},
+            ],
+        )
+
+        html = service.build_final_protocol(grouped=False)
+        assert ">00:38:50<" in html
+        assert ">00:40:00<" not in html
+        assert ">00:41:00<" not in html
+    finally:
+        service.close()
+
+
 def test_final_protocol_splits_by_age_groups_and_colors_by_gender(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
