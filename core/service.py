@@ -820,10 +820,10 @@ class MeetService:
         return ranked, places
 
     def _ranking_time_cs(self, swimmer) -> int | None:
-        return swimmer.result_time_cs if swimmer.result_time_cs is not None else swimmer.seed_time_cs
+        return swimmer.result_time_cs
 
     def _display_swimmer_time(self, swimmer) -> str:
-        return swimmer.result_time_raw or swimmer.seed_time_raw or swimmer.result_mark or ""
+        return swimmer.result_time_raw or swimmer.result_mark or ""
 
     def _swimmer_has_result(self, swimmer) -> bool:
         return swimmer.result_time_cs is not None or bool((swimmer.result_mark or "").strip())
