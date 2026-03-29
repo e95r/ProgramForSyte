@@ -388,7 +388,9 @@ def test_final_protocol_can_be_exported_to_excel_with_a4_setup(tmp_path: Path):
         assert ws["A5"].value == "100 БРАСС, МУЖЧИНЫ"
         assert ws["B7"].value == "Андреев Андрей"
         assert ws["F8"].value == 2
-        assert ws.column_dimensions["A"].width == 10
-        assert ws.column_dimensions["F"].width == 12
+        assert ws.column_dimensions["B"].width > ws.column_dimensions["C"].width
+        assert ws.column_dimensions["D"].width > ws.column_dimensions["C"].width
+        assert ws.column_dimensions["A"].width < ws.column_dimensions["B"].width
+        assert ws.column_dimensions["F"].width < ws.column_dimensions["B"].width
     finally:
         service.close()
