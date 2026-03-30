@@ -497,7 +497,7 @@ class MeetService:
                 (18, 36), # Фамилия Имя
                 (10, 14), # Год рождения
                 (18, 34), # Команда
-                (10, 14), # Время
+                (14, 22), # Время
                 (6, 10),  # Место
             ]
         elif show_heat_column:
@@ -507,7 +507,7 @@ class MeetService:
                 (18, 36), # Ф. И.
                 (10, 14), # Год рождения
                 (18, 34), # Команда
-                (10, 16), # Заявочное время
+                (14, 22), # Заявочное время
             ]
         else:
             limits = [
@@ -515,13 +515,70 @@ class MeetService:
                 (18, 36), # Ф. И.
                 (10, 14), # Год рождения
                 (18, 34), # Команда
-                (10, 16), # Заявочное время
+                (14, 22), # Заявочное время
             ]
 
+        measured_widths: list[float] = []
         for index, (header, max_len, (min_width, max_width)) in enumerate(zip(headers, content_lengths, limits), start=1):
             basis = max(max_len, self._cell_text_length(header))
             computed_width = basis * 1.1 + 2
-            ws.column_dimensions[get_column_letter(index)].width = max(min_width, min(max_width, computed_width))
+            width = max(min_width, min(max_width, computed_width))
+            ws.column_dimensions[get_column_letter(index)].width = width
+            measured_widths.append(width)
+
+        # Заполняем доступную ширину листа A4 (fitToWidth=1) и приоритетно расширяем колонку времени.
+        target_total_width = 118 if final_mode else (110 if show_heat_column else 104)
+        current_total_width = sum(measured_widths)
+        if current_total_width >= target_total_width:
+            return
+
+        free_space = target_total_width - current_total_width
+        time_index = len(headers) - 2 if final_mode or show_heat_column else len(headers) - 1
+        time_min, time_max = limits[time_index]
+        current_time_width = measured_widths[time_index]
+        time_extra = min(free_space * 0.55, max(0, time_max - current_time_width))
+        if time_extra > 0:
+            measured_widths[time_index] += time_extra
+            free_space -= time_extra
+
+        if free_space <= 0:
+            for idx, width in enumerate(measured_widths, start=1):
+                ws.column_dimensions[get_column_letter(idx)].width = width
+            return
+
+        expandable_indices = [
+            idx for idx, (_, max_width) in enumerate(limits)
+            if idx != time_index and measured_widths[idx] < max_width
+        ]
+        while free_space > 0.01 and expandable_indices:
+            share = free_space / len(expandable_indices)
+            next_indices: list[int] = []
+            distributed = 0.0
+            for idx in expandable_indices:
+                max_width = limits[idx][1]
+                headroom = max_width - measured_widths[idx]
+                delta = min(share, headroom)
+                if delta > 0:
+                    measured_widths[idx] += delta
+                    distributed += delta
+                if measured_widths[idx] + 0.01 < max_width:
+                    next_indices.append(idx)
+            if distributed <= 0:
+                break
+            free_space -= distributed
+            expandable_indices = next_indices
+
+        for idx, width in enumerate(measured_widths, start=1):
+            ws.column_dimensions[get_column_letter(idx)].width = width
+
+    def _build_group_title(self, event_name: str, gender_label: str, age_label: str, final_mode: bool) -> str:
+        title_parts = [self._base_event_name(event_name)]
+        show_gender = not (final_mode and gender_label == "Все")
+        if show_gender:
+            title_parts.append(gender_label)
+        if age_label != "Все возраста" and (gender_label != "Все" or not final_mode):
+            title_parts.append(age_label)
+        return ", ".join(title_parts).upper()
 
     def _export_protocol_workbook(
         self,
@@ -585,12 +642,12 @@ class MeetService:
             groups = self._split_event_into_age_groups(event_name, swimmers)
             for group in groups:
                 ranked, places = self._rank_swimmers(group["swimmers"])
-                title_parts = [self._base_event_name(event_name), group["gender_label"]]
-                if group["gender_label"] == "Все":
-                    title_parts.append(group["age_label"])
-                elif group["age_label"] != "Все возраста":
-                    title_parts.append(group["age_label"])
-                table_title = ", ".join(title_parts).upper()
+                table_title = self._build_group_title(
+                    event_name=event_name,
+                    gender_label=group["gender_label"],
+                    age_label=group["age_label"],
+                    final_mode=final_mode,
+                )
 
                 ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=total_columns)
                 title_cell = ws.cell(row=row, column=1, value=table_title)
@@ -732,12 +789,12 @@ class MeetService:
         show_heat_column: bool,
     ) -> str:
         ranked, places = self._rank_swimmers(swimmers)
-        title_parts = [self._base_event_name(event_name), gender_label]
-        if gender_label == "Все":
-            title_parts.append(age_label)
-        elif age_label != "Все возраста":
-            title_parts.append(age_label)
-        title = ", ".join(title_parts).upper()
+        title = self._build_group_title(
+            event_name=event_name,
+            gender_label=gender_label,
+            age_label=age_label,
+            final_mode=final_mode,
+        )
         start_protocol_colgroup = (
             "<colgroup><col class='col-2'><col class='col-3'><col class='col-4'><col class='col-5'><col class='col-6'></colgroup>"
             if not show_heat_column and not final_mode
