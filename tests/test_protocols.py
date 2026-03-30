@@ -213,6 +213,32 @@ def test_final_protocol_uses_only_result_time_not_seed_time(tmp_path: Path):
         service.close()
 
 
+def test_final_protocol_excel_uses_only_result_time_not_seed_time(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("200m")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "WithResult", "seed_time_raw": "00:40:00", "seed_time_cs": 4000, "result_time_raw": "00:38:50", "result_time_cs": 3850},
+                {"full_name": "NoResult", "seed_time_raw": "00:41:00", "seed_time_cs": 4100},
+            ],
+        )
+
+        export_path = tmp_path / "final.xlsx"
+        service.export_final_protocol_excel(export_path, grouped=False)
+
+        wb = load_workbook(export_path)
+        ws = wb.active
+        sheet_values = [cell for row in ws.iter_rows(values_only=True) for cell in row if isinstance(cell, str)]
+
+        assert "00:38:50" in sheet_values
+        assert "00:40:00" not in sheet_values
+        assert "00:41:00" not in sheet_values
+    finally:
+        service.close()
+
+
 def test_final_protocol_splits_by_age_groups_and_colors_by_gender(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
