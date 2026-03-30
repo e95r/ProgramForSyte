@@ -164,8 +164,9 @@ def test_final_protocol_contains_all_events_and_metadata(tmp_path: Path):
         assert "Итоговый протокол открытого турнира по плаванию &quot;АКВАДОН&quot;" in html
         assert "20 декабря 2025" in html
         assert "Тульская обл. г.Донской МБУ ДСК" in html
-        assert "50M, ВСЕ, ВСЕ ВОЗРАСТА" in html
-        assert "100M, ВСЕ, ВСЕ ВОЗРАСТА" in html
+        assert "50M</td>" in html
+        assert "100M</td>" in html
+        assert "ВСЕ ВОЗРАСТА" not in html
         assert "size: A4" in html
     finally:
         service.close()
@@ -293,6 +294,26 @@ def test_event_protocol_with_results_uses_competition_header_and_places(tmp_path
         service.close()
 
 
+def test_event_protocol_with_results_hides_all_suffix_for_mixed_gender(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        service.repo.set_meta("competition_title", "Кубок города")
+        event_id = service.repo.upsert_event("100 баттерфляй, все")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "Пловец 1", "birth_year": 2010, "team": "Команда", "result_time_raw": "00:59:00", "result_time_cs": 5900},
+            ],
+        )
+
+        html = service.build_event_protocol(event_id)
+        assert "100 БАТТЕРФЛЯЙ</td>" in html
+        assert "100 БАТТЕРФЛЯЙ, ВСЕ" not in html
+        assert "ВСЕ ВОЗРАСТА" not in html
+    finally:
+        service.close()
+
+
 def test_final_protocol_place_sort_desc(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
@@ -408,9 +429,12 @@ def test_final_protocol_can_be_exported_to_excel_with_a4_setup(tmp_path: Path):
         assert ws["A5"].value == "100 БРАСС, МУЖЧИНЫ"
         assert ws["B7"].value == "Андреев Андрей"
         assert ws["F8"].value == 2
+        assert ws.column_dimensions["E"].width > 18
+        assert ws.column_dimensions["E"].width > ws.column_dimensions["C"].width
         assert ws.column_dimensions["B"].width > ws.column_dimensions["C"].width
         assert ws.column_dimensions["D"].width > ws.column_dimensions["C"].width
         assert ws.column_dimensions["A"].width < ws.column_dimensions["B"].width
         assert ws.column_dimensions["F"].width < ws.column_dimensions["B"].width
+        assert sum(ws.column_dimensions[col].width for col in ("A", "B", "C", "D", "E", "F")) >= 110
     finally:
         service.close()
