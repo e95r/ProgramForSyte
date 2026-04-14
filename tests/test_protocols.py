@@ -287,6 +287,40 @@ def test_event_protocol_uses_women_gender_title_without_all_ages_suffix(tmp_path
         service.close()
 
 
+def test_event_protocol_detects_women_gender_without_comma_separator(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("100 - брасс девушки")
+        service.repo.add_swimmers(
+            event_id,
+            [
+                {"full_name": "A", "heat": 1, "lane": 1, "birth_year": 2012, "team": "Team", "seed_time_raw": "00:33:00", "seed_time_cs": 3300},
+            ],
+        )
+
+        html = service.build_event_protocol(event_id, grouped=True)
+        assert "100 - БРАСС, ЖЕНЩИНЫ" in html
+        assert "category-title girls" in html
+    finally:
+        service.close()
+
+
+def test_final_protocol_detects_men_gender_with_dash_separator(tmp_path: Path):
+    service = MeetService(tmp_path)
+    try:
+        event_id = service.repo.upsert_event("50 — вольный стиль юноши")
+        service.repo.add_swimmers(
+            event_id,
+            [{"full_name": "B", "birth_year": 2011, "team": "Team", "result_time_raw": "00:31:20", "result_time_cs": 3120}],
+        )
+
+        html = service.build_final_protocol()
+        assert "50 — ВОЛЬНЫЙ СТИЛЬ, МУЖЧИНЫ" in html
+        assert "category-title boys" in html
+    finally:
+        service.close()
+
+
 def test_event_protocol_with_results_uses_competition_header_and_places(tmp_path: Path):
     service = MeetService(tmp_path)
     try:
