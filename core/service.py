@@ -23,6 +23,10 @@ EVENT_NAME_PARTS_RE = re.compile(
     r"^\s*(?P<base>.+?)(?:\s*,\s*(?P<gender>женщины|девушки|девочки|мужчины|юноши|мальчики|все))?(?:\s+(?P<age>все))?\s*$",
     re.IGNORECASE,
 )
+EVENT_NAME_TRAILING_GENDER_RE = re.compile(
+    r"^\s*(?P<base>.+?)\s*(?:,|[-–—])?\s*(?P<gender>женщины|девушки|девочки|мужчины|юноши|мальчики|все)(?:\s+(?P<age>все))?\s*$",
+    re.IGNORECASE,
+)
 TRAILING_ALL_RE = re.compile(r"^(?P<title>.+?)(?:\s*,)?\s+все\s*$", re.IGNORECASE)
 
 
@@ -405,9 +409,9 @@ class MeetService:
 
     def _parse_event_name(self, event_name: str) -> tuple[str, str]:
         normalized = " ".join(event_name.split())
-        match = EVENT_NAME_PARTS_RE.match(normalized)
+        match = EVENT_NAME_TRAILING_GENDER_RE.match(normalized) or EVENT_NAME_PARTS_RE.match(normalized)
         if not match:
-            return event_name.strip(), "Все"
+            return normalized.strip() or event_name.strip(), "Все"
 
         base_name = (match.group("base") or "").strip(" ,") or event_name.strip()
         gender_token = (match.group("gender") or "").lower()
