@@ -294,7 +294,7 @@ class MainWindow(QMainWindow):
         self.root = root
         self.current_secretary = current_secretary
         self.setWindowTitle(f"Swim Meet MVP A+B — секретарь: {current_secretary.display_name}")
-        self.resize(1100, 700)
+        self.resize(1100, 820)
 
         self.events_list = QListWidget()
         self.events_list.currentRowChanged.connect(self.load_swimmers)
@@ -351,11 +351,10 @@ class MainWindow(QMainWindow):
         events_label = QLabel("Дистанции")
         events_label.setObjectName("sectionTitle")
         left.addWidget(events_label)
-        left.addWidget(self.events_list)
+        left.addWidget(self.events_list, 1)
         left.addWidget(import_btn)
         left.addWidget(backup_btn)
         left.addWidget(settings_btn)
-        left.addStretch(1)
 
         right = QVBoxLayout()
         right.setContentsMargins(16, 16, 16, 16)
