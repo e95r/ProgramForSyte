@@ -216,17 +216,22 @@ class MeetService:
         if mode == "full":
             updated = full_reseed(swimmers, lanes_count=lanes_count)
         else:
-            updated = compress_lanes_within_heats(swimmers, lanes_count=lanes_count)
+            has_unassigned_active = any(s.status != "DNS" and not isinstance(s.heat, int) for s in swimmers)
+            if has_unassigned_active:
+                updated = full_reseed(swimmers, lanes_count=lanes_count)
+            else:
+                updated = compress_lanes_within_heats(swimmers, lanes_count=lanes_count)
         self.repo.update_swimmer_positions(updated)
         self.repo.log("reseed_event", f"event={event_id}; mode={mode}")
 
     def _resolve_reseed_lanes_count(self, swimmers: list, configured_lanes: int) -> int:
-        if 1 <= configured_lanes <= 12:
+        max_lanes = 6
+        if 1 <= configured_lanes <= max_lanes:
             return configured_lanes
 
         active = [s for s in swimmers if s.status != "DNS"]
         if not active:
-            return max(configured_lanes, 1)
+            return min(max(configured_lanes, 1), max_lanes)
 
         heats_count = len({s.heat for s in active if isinstance(s.heat, int) and s.heat > 0})
         max_heat_size = 0
@@ -246,8 +251,8 @@ class MeetService:
 
         for candidate in (max_heat_size, derived_from_heats, observed_lane_max, configured_lanes):
             if candidate > 0:
-                return candidate
-        return 8
+                return min(candidate, max_lanes)
+        return max_lanes
 
     def save_event_results(self, event_id: int, results: list[dict[str, str]]) -> None:
         payload: list[tuple[int, str | None, int | None, str | None]] = []
