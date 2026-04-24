@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
+    QSplitter,
     QSpinBox,
     QStyledItemDelegate,
     QTableWidget,
@@ -71,106 +73,187 @@ def build_theme_stylesheet(theme: str) -> str:
     if theme == "dark":
         return """
         QWidget {
-            background-color: #1e1e1e;
-            color: #f2f2f2;
+            background-color: #14161a;
+            color: #eef2f7;
+            font-size: 13px;
         }
         QMainWindow, QDialog {
-            background-color: #1e1e1e;
+            background-color: #14161a;
+        }
+        QLabel#sectionTitle {
+            color: #8ab4ff;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+        }
+        QWidget#sidebarCard, QWidget#contentCard {
+            background-color: #1c1f24;
+            border: 1px solid #2a2f38;
+            border-radius: 12px;
         }
         QPushButton {
-            background-color: #2d2d30;
-            border: 1px solid #3f3f46;
-            padding: 6px 10px;
-            border-radius: 4px;
+            background-color: #262b35;
+            border: 1px solid #303746;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-weight: 600;
         }
         QPushButton:hover {
-            background-color: #3a3a3f;
+            background-color: #2e3441;
         }
         QPushButton:pressed {
-            background-color: #252529;
+            background-color: #20242d;
+        }
+        QPushButton#primaryButton {
+            background-color: #2f80ed;
+            border: 1px solid #2f80ed;
+            color: #ffffff;
+        }
+        QPushButton#primaryButton:hover {
+            background-color: #3a8cf6;
         }
         QLineEdit, QTextEdit, QListWidget, QTableWidget, QComboBox, QSpinBox {
-            background-color: #252526;
-            color: #f2f2f2;
-            border: 1px solid #3f3f46;
+            background-color: #1b1f27;
+            color: #eef2f7;
+            border: 1px solid #323a4b;
+            border-radius: 8px;
+            padding: 6px;
             selection-background-color: #2f80ed;
             selection-color: #ffffff;
         }
+        QLineEdit:focus, QTextEdit:focus, QListWidget:focus, QTableWidget:focus, QComboBox:focus, QSpinBox:focus {
+            border: 1px solid #5ea1f5;
+        }
         QHeaderView::section {
-            background-color: #2d2d30;
-            color: #f2f2f2;
-            border: 1px solid #3f3f46;
-            padding: 4px;
+            background-color: #232833;
+            color: #eef2f7;
+            border: none;
+            border-bottom: 1px solid #303746;
+            padding: 8px 6px;
+            font-weight: 600;
         }
         QTableWidget::item:selected {
             background-color: #2f80ed;
             color: #ffffff;
         }
+        QTableWidget {
+            gridline-color: #2a2f38;
+        }
         QTabWidget::pane {
-            border: 1px solid #3f3f46;
+            border: 1px solid #2a2f38;
+            border-radius: 10px;
+            padding: 6px;
         }
         QTabBar::tab {
-            background-color: #2d2d30;
-            color: #f2f2f2;
-            padding: 6px 10px;
-            border: 1px solid #3f3f46;
+            background-color: #222834;
+            color: #eef2f7;
+            padding: 8px 12px;
+            border: 1px solid #303746;
+            border-top-left-radius: 8px;
+            border-top-right-radius: 8px;
         }
         QTabBar::tab:selected {
-            background-color: #3a3a3f;
+            background-color: #2f80ed;
+            border-color: #2f80ed;
+        }
+        QSplitter::handle {
+            background-color: #222834;
+            width: 10px;
         }
         """
     return """
     QWidget {
-        background-color: #f7f7f7;
-        color: #202020;
+        background-color: #f2f5fa;
+        color: #1b2330;
+        font-size: 13px;
     }
     QMainWindow, QDialog {
-        background-color: #f7f7f7;
+        background-color: #f2f5fa;
+    }
+    QLabel#sectionTitle {
+        color: #1a5fd0;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+    }
+    QWidget#sidebarCard, QWidget#contentCard {
+        background-color: #ffffff;
+        border: 1px solid #d7deeb;
+        border-radius: 12px;
     }
     QPushButton {
         background-color: #ffffff;
-        border: 1px solid #c8c8c8;
-        padding: 6px 10px;
-        border-radius: 4px;
+        border: 1px solid #c8d3e6;
+        padding: 8px 12px;
+        border-radius: 8px;
+        font-weight: 600;
     }
     QPushButton:hover {
-        background-color: #f0f6ff;
+        background-color: #eef4ff;
     }
     QPushButton:pressed {
-        background-color: #e5eefc;
+        background-color: #dde9ff;
+    }
+    QPushButton#primaryButton {
+        background-color: #2f80ed;
+        border: 1px solid #2f80ed;
+        color: #ffffff;
+    }
+    QPushButton#primaryButton:hover {
+        background-color: #428ff5;
     }
     QLineEdit, QTextEdit, QListWidget, QTableWidget, QComboBox, QSpinBox {
         background-color: #ffffff;
-        color: #202020;
-        border: 1px solid #c8c8c8;
+        color: #1b2330;
+        border: 1px solid #cad6eb;
+        border-radius: 8px;
+        padding: 6px;
         selection-background-color: #5b9dff;
-        selection-color: #000000;
+        selection-color: #ffffff;
+    }
+    QLineEdit:focus, QTextEdit:focus, QListWidget:focus, QTableWidget:focus, QComboBox:focus, QSpinBox:focus {
+        border: 1px solid #5b9dff;
     }
     QHeaderView::section {
-        background-color: #efefef;
-        color: #202020;
-        border: 1px solid #c8c8c8;
-        padding: 4px;
+        background-color: #f7f9fe;
+        color: #1b2330;
+        border: none;
+        border-bottom: 1px solid #d9e1ee;
+        padding: 8px 6px;
+        font-weight: 600;
     }
     QTableWidget::item:selected {
         background-color: #5b9dff;
-        color: #000000;
+        color: #ffffff;
     }
     QTableWidget::item:selected:active {
         background-color: #2f80ed;
         color: #ffffff;
     }
+    QTableWidget {
+        gridline-color: #e1e7f3;
+    }
     QTabWidget::pane {
-        border: 1px solid #c8c8c8;
+        border: 1px solid #d4deee;
+        border-radius: 10px;
+        padding: 6px;
     }
     QTabBar::tab {
-        background-color: #efefef;
-        color: #202020;
-        padding: 6px 10px;
-        border: 1px solid #c8c8c8;
+        background-color: #eaf1ff;
+        color: #1b2330;
+        padding: 8px 12px;
+        border: 1px solid #cdd9ef;
+        border-top-left-radius: 8px;
+        border-top-right-radius: 8px;
     }
     QTabBar::tab:selected {
-        background-color: #ffffff;
+        background-color: #2f80ed;
+        border-color: #2f80ed;
+        color: #ffffff;
+    }
+    QSplitter::handle {
+        background-color: #dbe4f2;
+        width: 10px;
     }
     """
 
@@ -228,11 +311,15 @@ class MainWindow(QMainWindow):
             ["Дистанция", "Заплыв", "Дорожка", "ФИО", "Год", "Команда", "Время", "Статус", "Результат"]
         )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
 
         import_btn = QPushButton("Импорт Excel")
+        import_btn.setObjectName("primaryButton")
         import_btn.clicked.connect(self.import_excel)
         backup_btn = QPushButton("Бэкап БД")
         backup_btn.clicked.connect(self.make_backup)
@@ -249,6 +336,7 @@ class MainWindow(QMainWindow):
         event_protocol_btn = QPushButton("Протокол дистанции")
         event_protocol_btn.clicked.connect(self.open_event_protocol)
         final_protocol_btn = QPushButton("Подвести итоги")
+        final_protocol_btn.setObjectName("primaryButton")
         final_protocol_btn.clicked.connect(self.open_final_protocol)
 
         secretary_label = QLabel(
@@ -258,32 +346,60 @@ class MainWindow(QMainWindow):
         secretary_label.setWordWrap(True)
 
         left = QVBoxLayout()
-        left.addWidget(QLabel("Дистанции"))
+        left.setContentsMargins(16, 16, 16, 16)
+        left.setSpacing(12)
+        events_label = QLabel("Дистанции")
+        events_label.setObjectName("sectionTitle")
+        left.addWidget(events_label)
         left.addWidget(self.events_list)
         left.addWidget(import_btn)
         left.addWidget(backup_btn)
         left.addWidget(settings_btn)
+        left.addStretch(1)
 
         right = QVBoxLayout()
+        right.setContentsMargins(16, 16, 16, 16)
+        right.setSpacing(12)
         right.addWidget(secretary_label)
         right.addWidget(self.search_input)
         right.addWidget(self.full_reseed)
         right.addWidget(self.table)
-        actions = QHBoxLayout()
-        actions.addWidget(mark_absent_btn)
-        actions.addWidget(restore_btn)
-        actions.addWidget(reseed_btn)
-        actions.addWidget(result_entry_btn)
-        actions.addWidget(event_protocol_btn)
-        actions.addWidget(final_protocol_btn)
-        right.addLayout(actions)
+        actions_top = QHBoxLayout()
+        actions_top.setSpacing(8)
+        actions_top.addWidget(mark_absent_btn)
+        actions_top.addWidget(restore_btn)
+        actions_top.addWidget(reseed_btn)
+        actions_bottom = QHBoxLayout()
+        actions_bottom.setSpacing(8)
+        actions_bottom.addWidget(result_entry_btn)
+        actions_bottom.addWidget(event_protocol_btn)
+        actions_bottom.addWidget(final_protocol_btn)
+        right.addLayout(actions_top)
+        right.addLayout(actions_bottom)
+
+        left_widget = QWidget()
+        left_widget.setObjectName("sidebarCard")
+        left_widget.setLayout(left)
+        left_widget.setMinimumWidth(260)
+        left_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+
+        right_widget = QWidget()
+        right_widget.setObjectName("contentCard")
+        right_widget.setLayout(right)
+        right_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.addWidget(left_widget)
+        splitter.addWidget(right_widget)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 4)
+        splitter.setSizes([280, 900])
 
         root_layout = QHBoxLayout()
-        left_widget = QWidget(); left_widget.setLayout(left)
-        right_widget = QWidget(); right_widget.setLayout(right)
-        root_layout.addWidget(left_widget, 1)
-        root_layout.addWidget(right_widget, 3)
-        wrapper = QWidget(); wrapper.setLayout(root_layout)
+        root_layout.setContentsMargins(14, 14, 14, 14)
+        root_layout.addWidget(splitter)
+        wrapper = QWidget()
+        wrapper.setLayout(root_layout)
         self.setCentralWidget(wrapper)
 
         self.apply_ui_preferences()
