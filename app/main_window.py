@@ -306,9 +306,9 @@ class MainWindow(QMainWindow):
         self.full_reseed = QCheckBox("Полный пересев")
         self.full_reseed.setToolTip("Если включено — полностью пересчитать заплывы по заявочному времени")
 
-        self.table = QTableWidget(0, 9)
+        self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
-            ["Дистанция", "Заплыв", "Дорожка", "ФИО", "Год", "Команда", "Время", "Статус", "Результат"]
+            ["Заплыв", "Дорожка", "ФИО", "Год", "Команда", "Время", "Статус", "Результат"]
         )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -470,7 +470,6 @@ class MainWindow(QMainWindow):
         heat_rows: list[tuple[int | None, int]] = []
         for row_idx, s in enumerate(swimmers):
             values = [
-                s.event_name or "",
                 str(s.heat or "-"),
                 str(s.lane or "-"),
                 s.full_name,
@@ -482,9 +481,9 @@ class MainWindow(QMainWindow):
             ]
             for col_idx, val in enumerate(values):
                 cell = QTableWidgetItem(val)
-                if col_idx == 3:
+                if col_idx == 2:
                     cell.setData(Qt.ItemDataRole.UserRole, s.id)
-                if col_idx in (1, 2):
+                if col_idx in (0, 1):
                     cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 if s.status == "DNS":
                     cell.setForeground(Qt.GlobalColor.darkGray)
@@ -529,7 +528,7 @@ class MainWindow(QMainWindow):
         selected = self.table.selectionModel().selectedRows()
         ids: list[int] = []
         for idx in selected:
-            item = self.table.item(idx.row(), 3)
+            item = self.table.item(idx.row(), 2)
             if item is None:
                 continue
             swimmer_id = item.data(Qt.ItemDataRole.UserRole)
