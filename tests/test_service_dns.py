@@ -49,3 +49,24 @@ def test_restore_swimmer_reseeds_event(tmp_path: Path):
     active = [s for s in out if s.status == "OK"]
     assert [(s.full_name, s.lane) for s in active] == [("C", 2), ("A", 3), ("B", 4)]
     service.close()
+
+
+def test_full_reseed_uses_observed_heat_size_when_configured_lanes_is_invalid(tmp_path: Path):
+    service = MeetService(tmp_path)
+    event_id = service.repo.upsert_event("100 free", lanes_count=999)
+    service.repo.add_swimmers(
+        event_id,
+        [
+            {"full_name": "A", "heat": 1, "lane": 1, "seed_time_raw": "1.10", "seed_time_cs": 7000},
+            {"full_name": "B", "heat": 1, "lane": 2, "seed_time_raw": "1.09", "seed_time_cs": 6900},
+            {"full_name": "C", "heat": 2, "lane": 1, "seed_time_raw": "1.08", "seed_time_cs": 6800},
+            {"full_name": "D", "heat": 2, "lane": 2, "seed_time_raw": "1.07", "seed_time_cs": 6700},
+        ],
+    )
+
+    service.reseed_event(event_id, mode="full")
+
+    out = [s for s in service.repo.list_swimmers(event_id) if s.status == "OK"]
+    heats = {s.heat for s in out}
+    assert heats == {1, 2}
+    service.close()

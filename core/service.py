@@ -7,6 +7,7 @@ import re
 import secrets
 import shutil
 from datetime import datetime
+from math import ceil
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -211,12 +212,42 @@ class MeetService:
     def reseed_event(self, event_id: int, mode: str = "soft") -> None:
         event = next(e for e in self.repo.list_events() if e.id == event_id)
         swimmers = self.repo.list_swimmers(event_id)
+        lanes_count = self._resolve_reseed_lanes_count(swimmers, event.lanes_count)
         if mode == "full":
-            updated = full_reseed(swimmers, lanes_count=event.lanes_count)
+            updated = full_reseed(swimmers, lanes_count=lanes_count)
         else:
-            updated = compress_lanes_within_heats(swimmers, lanes_count=event.lanes_count)
+            updated = compress_lanes_within_heats(swimmers, lanes_count=lanes_count)
         self.repo.update_swimmer_positions(updated)
         self.repo.log("reseed_event", f"event={event_id}; mode={mode}")
+
+    def _resolve_reseed_lanes_count(self, swimmers: list, configured_lanes: int) -> int:
+        if 1 <= configured_lanes <= 12:
+            return configured_lanes
+
+        active = [s for s in swimmers if s.status != "DNS"]
+        if not active:
+            return max(configured_lanes, 1)
+
+        heats_count = len({s.heat for s in active if isinstance(s.heat, int) and s.heat > 0})
+        max_heat_size = 0
+        if heats_count > 0:
+            heat_sizes: dict[int, int] = {}
+            for swimmer in active:
+                if isinstance(swimmer.heat, int) and swimmer.heat > 0:
+                    heat_sizes[swimmer.heat] = heat_sizes.get(swimmer.heat, 0) + 1
+            max_heat_size = max(heat_sizes.values()) if heat_sizes else 0
+
+        derived_from_heats = ceil(len(active) / heats_count) if heats_count > 0 else 0
+
+        observed_lane_max = max(
+            (int(s.lane) for s in active if isinstance(s.lane, int) and s.lane > 0),
+            default=0,
+        )
+
+        for candidate in (max_heat_size, derived_from_heats, observed_lane_max, configured_lanes):
+            if candidate > 0:
+                return candidate
+        return 8
 
     def save_event_results(self, event_id: int, results: list[dict[str, str]]) -> None:
         payload: list[tuple[int, str | None, int | None, str | None]] = []
