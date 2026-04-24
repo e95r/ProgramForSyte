@@ -19,6 +19,7 @@ class Swimmer:
     result_time_raw: Optional[str] = None
     result_time_cs: Optional[int] = None
     result_mark: Optional[str] = None
+    event_name: Optional[str] = None
 
 
 @dataclass(slots=True)

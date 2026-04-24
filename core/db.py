@@ -204,15 +204,26 @@ class MeetRepository:
         rows = self.conn.execute("SELECT * FROM events ORDER BY id").fetchall()
         return [Event(id=int(r["id"]), name=r["name"], lanes_count=int(r["lanes_count"])) for r in rows]
 
-    def list_swimmers(self, event_id: int, search: str = "") -> list[Swimmer]:
-        sql = "SELECT * FROM swimmers WHERE event_id=?"
-        params: list[object] = [event_id]
-        if search:
-            sql += " AND lower(full_name) LIKE ?"
-            params.append(f"%{search.lower()}%")
-        sql += " ORDER BY CASE WHEN heat IS NULL THEN 999 ELSE heat END, CASE WHEN lane IS NULL THEN 999 ELSE lane END, full_name"
+    def list_swimmers(self, event_id: int | None, search: str = "") -> list[Swimmer]:
+        sql = """
+            SELECT swimmers.*, events.name AS event_name
+            FROM swimmers
+            JOIN events ON events.id = swimmers.event_id
+            WHERE 1=1
+        """
+        params: list[object] = []
+        if event_id is not None:
+            sql += " AND swimmers.event_id=?"
+            params.append(event_id)
+        search_tokens = [token.casefold() for token in search.split() if token.strip()]
+        sql += """
+            ORDER BY swimmers.event_id,
+                CASE WHEN swimmers.heat IS NULL THEN 999 ELSE swimmers.heat END,
+                CASE WHEN swimmers.lane IS NULL THEN 999 ELSE swimmers.lane END,
+                swimmers.full_name
+        """
         rows = self.conn.execute(sql, params).fetchall()
-        return [
+        swimmers = [
             Swimmer(
                 id=int(r["id"]),
                 event_id=int(r["event_id"]),
@@ -227,8 +238,16 @@ class MeetRepository:
                 result_time_raw=r["result_time_raw"],
                 result_time_cs=r["result_time_cs"],
                 result_mark=r["result_mark"],
+                event_name=r["event_name"],
             )
             for r in rows
+        ]
+        if not search_tokens:
+            return swimmers
+        return [
+            swimmer
+            for swimmer in swimmers
+            if all(token in swimmer.full_name.casefold() for token in search_tokens)
         ]
 
     def update_swimmer_positions(self, swimmers: Iterable[Swimmer]) -> None:

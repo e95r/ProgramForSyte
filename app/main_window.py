@@ -223,8 +223,10 @@ class MainWindow(QMainWindow):
         self.full_reseed = QCheckBox("Полный пересев")
         self.full_reseed.setToolTip("Если включено — полностью пересчитать заплывы по заявочному времени")
 
-        self.table = QTableWidget(0, 8)
-        self.table.setHorizontalHeaderLabels(["Заплыв", "Дорожка", "ФИО", "Год", "Команда", "Время", "Статус", "Результат"])
+        self.table = QTableWidget(0, 9)
+        self.table.setHorizontalHeaderLabels(
+            ["Дистанция", "Заплыв", "Дорожка", "ФИО", "Год", "Команда", "Время", "Статус", "Результат"]
+        )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
@@ -345,12 +347,15 @@ class MainWindow(QMainWindow):
         if event_id is None:
             self.table.setRowCount(0)
             return
-        swimmers = self.service.repo.list_swimmers(event_id, self.search_input.text())
+        search_text = self.search_input.text().strip()
+        search_all_events = bool(search_text)
+        swimmers = self.service.repo.list_swimmers(None if search_all_events else event_id, search_text)
         self.table.clearSpans()
         self.table.setRowCount(len(swimmers))
         heat_rows: list[tuple[int | None, int]] = []
         for row_idx, s in enumerate(swimmers):
             values = [
+                s.event_name or "",
                 str(s.heat or "-"),
                 str(s.lane or "-"),
                 s.full_name,
@@ -362,15 +367,18 @@ class MainWindow(QMainWindow):
             ]
             for col_idx, val in enumerate(values):
                 cell = QTableWidgetItem(val)
-                if col_idx == 2:
+                if col_idx == 3:
                     cell.setData(Qt.ItemDataRole.UserRole, s.id)
-                if col_idx in (0, 1):
+                if col_idx in (1, 2):
                     cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 if s.status == "DNS":
                     cell.setForeground(Qt.GlobalColor.darkGray)
                 self.table.setItem(row_idx, col_idx, cell)
             heat_rows.append((s.heat, s.lane or 0))
-        self._apply_heat_spans(self.table, heat_rows)
+        if search_all_events:
+            self.table.clearSpans()
+        else:
+            self._apply_heat_spans(self.table, heat_rows)
         self.table.resizeColumnsToContents()
 
     def import_excel(self) -> None:
@@ -406,7 +414,7 @@ class MainWindow(QMainWindow):
         selected = self.table.selectionModel().selectedRows()
         ids: list[int] = []
         for idx in selected:
-            item = self.table.item(idx.row(), 2)
+            item = self.table.item(idx.row(), 3)
             if item is None:
                 continue
             swimmer_id = item.data(Qt.ItemDataRole.UserRole)
