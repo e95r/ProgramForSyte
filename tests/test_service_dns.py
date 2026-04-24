@@ -69,4 +69,32 @@ def test_full_reseed_uses_observed_heat_size_when_configured_lanes_is_invalid(tm
     out = [s for s in service.repo.list_swimmers(event_id) if s.status == "OK"]
     heats = {s.heat for s in out}
     assert heats == {1, 2}
+    assert all(1 <= (s.lane or 0) <= 6 for s in out)
+    service.close()
+
+
+def test_soft_reseed_with_restored_swimmer_without_heat_falls_back_to_full(tmp_path: Path):
+    service = MeetService(tmp_path)
+    event_id = service.repo.upsert_event("50 free", lanes_count=6)
+    service.repo.add_swimmers(
+        event_id,
+        [
+            {"full_name": "S1", "heat": 1, "lane": 1, "seed_time_raw": "1.20", "seed_time_cs": 7200},
+            {"full_name": "S2", "heat": 1, "lane": 2, "seed_time_raw": "1.19", "seed_time_cs": 7100},
+            {"full_name": "S3", "heat": 1, "lane": 3, "seed_time_raw": "1.18", "seed_time_cs": 7000},
+            {"full_name": "S4", "heat": 1, "lane": 4, "seed_time_raw": "1.17", "seed_time_cs": 6900},
+            {"full_name": "S5", "heat": 2, "lane": 1, "seed_time_raw": "1.16", "seed_time_cs": 6800},
+            {"full_name": "S6", "heat": 2, "lane": 2, "seed_time_raw": "1.15", "seed_time_cs": 6700},
+            {"full_name": "S7", "heat": 2, "lane": 3, "seed_time_raw": "1.14", "seed_time_cs": 6600},
+        ],
+    )
+
+    swimmer = next(s for s in service.repo.list_swimmers(event_id) if s.full_name == "S7")
+    service.mark_dns(event_id, [swimmer.id])
+    service.restore_swimmers(event_id, [swimmer.id], mode="soft")
+
+    out = [s for s in service.repo.list_swimmers(event_id) if s.status == "OK"]
+    heats = {s.full_name: s.heat for s in out}
+    assert heats["S7"] == 2
+    assert sorted(set(heats.values())) == [1, 2]
     service.close()
